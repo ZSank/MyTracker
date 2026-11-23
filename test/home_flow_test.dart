@@ -82,6 +82,77 @@ void main() {
     expect(log.entries.single.calories, 450);
   });
 
+  testWidgets('dashboard saves and shows an entry comment', (tester) async {
+    await pumpDashboard(tester);
+
+    await tester.tap(find.byKey(const Key('add-food-entry-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('food-name-field')), 'Salad');
+    await tester.enterText(find.byKey(const Key('calories-field')), '250');
+    await tester.ensureVisible(find.byKey(const Key('comment-field')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('comment-field')),
+      'Lunch with friends',
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+
+    final log = vault.logs[dateKey(DateTime.now())];
+    expect(log, isNotNull);
+    final entry = log!.entries.single;
+    expect(entry.comment, 'Lunch with friends');
+    expect(find.byKey(ValueKey('entry-comment-${entry.id}')), findsOneWidget);
+    expect(find.text('Lunch with friends'), findsOneWidget);
+  });
+
+  testWidgets('timing shortcuts set yesterday and a time of day', (
+    tester,
+  ) async {
+    await pumpDashboard(tester);
+
+    await tester.tap(find.byKey(const Key('add-food-entry-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('food-name-field')),
+      'Late snack',
+    );
+    await tester.enterText(find.byKey(const Key('calories-field')), '150');
+
+    await tester.ensureVisible(find.byKey(const Key('timing-yesterday-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('timing-yesterday-chip')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('timing-night-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('timing-night-chip')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('custom-timing-button')), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+
+    final now = DateTime.now();
+    final yesterday = DateTime(now.year, now.month, now.day - 1, 21);
+    final log = vault.logs[dateKey(yesterday)];
+    expect(log, isNotNull);
+    final entry = log!.entries.single;
+    expect(entry.foodName, 'Late snack');
+    expect(entry.timestamp.year, yesterday.year);
+    expect(entry.timestamp.month, yesterday.month);
+    expect(entry.timestamp.day, yesterday.day);
+    expect(entry.timestamp.hour, 21);
+  });
+
   testWidgets('dashboard adds a pre-made food in one tap', (tester) async {
     await trackerState.upsertPreset(
       const FoodPreset(

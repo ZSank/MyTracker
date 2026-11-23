@@ -29,6 +29,19 @@ void main() {
         isFalse,
       );
     });
+
+    test('monthKey and monthOnly describe the local calendar month', () {
+      expect(monthKey(DateTime(2026, 1, 5, 23, 59)), '2026-01');
+      expect(monthOnly(DateTime(2026, 11, 23, 18)), DateTime(2026, 11));
+      expect(
+        isSameMonth(DateTime(2026, 11, 1), DateTime(2026, 11, 30, 23)),
+        isTrue,
+      );
+      expect(
+        isSameMonth(DateTime(2026, 11, 30, 23), DateTime(2026, 12, 1)),
+        isFalse,
+      );
+    });
   });
 
   group('formatters', () {

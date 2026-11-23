@@ -1,7 +1,7 @@
 import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 
-/// In-memory representation of one `logs/food/YYYY-MM-DD.json` file.
+/// One day's entries, read from a `logs/food/YYYY-MM.json` file.
 class DailyFoodLog {
   DailyFoodLog({required DateTime date, List<FoodEntry> entries = const []})
     : date = dateOnly(date),

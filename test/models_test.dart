@@ -3,6 +3,7 @@ import 'package:junk_food_tracker/core/models/app_config.dart';
 import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
+import 'package:junk_food_tracker/features/food/models/monthly_food_log.dart';
 
 void main() {
   group('AppConfig', () {
@@ -197,6 +198,22 @@ void main() {
       expect(entry.sugar, isNull);
       expect(entry.quantity, 1);
       expect(entry.unit, isNull);
+      expect(entry.comment, isNull);
+    });
+
+    test('round-trips an optional comment', () {
+      final entry = FoodEntry(
+        id: 'entry-comment',
+        foodName: 'Oatmeal',
+        calories: 300,
+        category: 'Healthy',
+        timestamp: DateTime(2026, 11, 23, 8, 30),
+        comment: 'Post-workout breakfast',
+      );
+
+      final restored = FoodEntry.fromJson(entry.toJson());
+
+      expect(restored.comment, 'Post-workout breakfast');
     });
 
     test('fromJson rejects malformed optional fields', () {
@@ -230,6 +247,10 @@ void main() {
       );
       expect(
         () => FoodEntry.fromJson({...base(), 'unit': 3}),
+        throwsFormatException,
+      );
+      expect(
+        () => FoodEntry.fromJson({...base(), 'comment': 3}),
         throwsFormatException,
       );
     });
@@ -489,6 +510,83 @@ void main() {
       expect(json['date'], '2026-01-05');
       expect(json['entries'], hasLength(1));
       expect((json['entries'] as List).single['id'], 'one');
+    });
+  });
+
+  group('MonthlyFoodLog', () {
+    FoodEntry entry(String id, DateTime at, {int calories = 100}) {
+      return FoodEntry(
+        id: id,
+        foodName: 'Food $id',
+        calories: calories,
+        category: 'Healthy',
+        timestamp: at,
+      );
+    }
+
+    test('sorts entries newest first and filters by day', () {
+      final log = MonthlyFoodLog(
+        month: DateTime(2026, 11, 23),
+        entries: [
+          entry('first', DateTime(2026, 11, 22, 8)),
+          entry('second', DateTime(2026, 11, 22, 19)),
+          entry('third', DateTime(2026, 11, 21, 12)),
+        ],
+      );
+
+      expect(log.month, DateTime(2026, 11));
+      expect(log.entries.map((item) => item.id), ['second', 'first', 'third']);
+      expect(
+        log.entriesForDate(DateTime(2026, 11, 22)).map((item) => item.id),
+        ['second', 'first'],
+      );
+      expect(log.entriesForDate(DateTime(2026, 11, 20)), isEmpty);
+    });
+
+    test('replacing one day keeps the rest of the month', () {
+      final log = MonthlyFoodLog(
+        month: DateTime(2026, 11),
+        entries: [
+          entry('keep', DateTime(2026, 11, 21, 9)),
+          entry('replace', DateTime(2026, 11, 22, 9)),
+        ],
+      );
+
+      final updated = log.withEntriesForDate(DateTime(2026, 11, 22), [
+        entry('new', DateTime(2026, 11, 22, 20), calories: 250),
+      ]);
+
+      expect(updated.entries.map((item) => item.id), ['new', 'keep']);
+      expect(updated.entries.first.calories, 250);
+      expect(updated.month, DateTime(2026, 11));
+    });
+
+    test('toJson and fromJson round-trip and skip malformed entries', () {
+      final log = MonthlyFoodLog(
+        month: DateTime(2026, 11),
+        entries: [entry('valid', DateTime(2026, 11, 23, 8))],
+      );
+
+      final restored = MonthlyFoodLog.fromJson(log.toJson(), month: log.month);
+      expect(restored.month, DateTime(2026, 11));
+      expect(restored.entries.single.id, 'valid');
+
+      final withBadEntries = MonthlyFoodLog.fromJson({
+        'month': '2026-11',
+        'entries': [
+          {
+            'id': 'valid',
+            'foodName': 'Apple',
+            'calories': 95,
+            'category': 'Healthy',
+            'timestamp': '2026-11-23T09:00:00.000Z',
+          },
+          {'id': 'bad', 'foodName': 'Mystery'},
+          'not-an-object',
+        ],
+      }, month: DateTime(2026, 11));
+
+      expect(withBadEntries.entries.single.id, 'valid');
     });
   });
 }

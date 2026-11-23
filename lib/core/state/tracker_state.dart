@@ -11,10 +11,10 @@ enum VaultStatus { initializing, needsVaultSetup, ready, error }
 
 /// Central write-through cache for the whole app.
 ///
-/// `config.json`, `food_presets.json`, and today's daily log are loaded into
-/// memory once. UI code reads these getters only. Mutations update memory and
-/// notify immediately, then flush to disk through the queued [VaultService]
-/// writes.
+/// `config.json`, `food_presets.json`, and the recent daily logs (read from
+/// the monthly food log files) are loaded into memory once. UI code reads
+/// these getters only. Mutations update memory and notify immediately, then
+/// flush to disk through the queued [VaultService] writes.
 class TrackerState extends ChangeNotifier {
   TrackerState({VaultService? vaultService})
     : _vault = vaultService ?? VaultService();

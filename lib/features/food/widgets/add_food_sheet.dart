@@ -1,11 +1,32 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
+import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
+
+/// Quick time-of-day shortcuts for the entry form.
+enum _DayPeriod {
+  morning('Morning', 8),
+  afternoon('Afternoon', 13),
+  evening('Evening', 18),
+  night('Night', 21);
+
+  const _DayPeriod(this.label, this.hour);
+
+  final String label;
+  final int hour;
+
+  static _DayPeriod forHour(int hour) {
+    if (hour >= 5 && hour < 12) return morning;
+    if (hour >= 12 && hour < 17) return afternoon;
+    if (hour >= 17 && hour < 21) return evening;
+    return night;
+  }
+}
 
 Future<void> showAddFoodSheet(BuildContext context, {FoodEntry? entry}) {
   return showModalBottomSheet<void>(
@@ -37,6 +58,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   late final TextEditingController _proteinController;
   late final TextEditingController _fatsController;
   late final TextEditingController _sugarController;
+  late final TextEditingController _commentController;
   late DateTime _timestamp;
   String? _category;
   FoodPreset? _selectedPreset;
@@ -64,6 +86,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     );
     _fatsController = TextEditingController(text: _optionalText(entry?.fats));
     _sugarController = TextEditingController(text: _optionalText(entry?.sugar));
+    _commentController = TextEditingController(text: entry?.comment ?? '');
     _timestamp = entry?.timestamp ?? DateTime.now();
 
     final fallbackCategory = state.foodCategories.isNotEmpty
@@ -81,6 +104,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     _proteinController.dispose();
     _fatsController.dispose();
     _sugarController.dispose();
+    _commentController.dispose();
     super.dispose();
   }
 
@@ -141,6 +165,29 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     }
   }
 
+  void _applyPeriod(_DayPeriod period) {
+    setState(() {
+      _timestamp = DateTime(
+        _timestamp.year,
+        _timestamp.month,
+        _timestamp.day,
+        period.hour,
+      );
+    });
+  }
+
+  void _applyDay(DateTime day) {
+    setState(() {
+      _timestamp = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        _timestamp.hour,
+        _timestamp.minute,
+      );
+    });
+  }
+
   Future<void> _pickTiming() async {
     final now = DateTime.now();
     final initialDate = _timestamp.isAfter(now) ? now : _timestamp;
@@ -185,6 +232,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     final fats = _optionalValue(_fatsController);
     final sugar = _optionalValue(_sugarController);
     final unit = _unitController.text.trim();
+    final comment = _commentController.text.trim();
 
     setState(() => _saving = true);
 
@@ -201,6 +249,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         sugar: sugar,
         quantity: quantity,
         unit: unit.isEmpty ? null : unit,
+        comment: comment.isEmpty ? null : comment,
       );
 
       if (widget.entry != null) {
@@ -489,19 +538,21 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                InkWell(
-                  borderRadius: BorderRadius.circular(4),
-                  onTap: _saving ? null : _pickTiming,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Timing',
-                      prefixIcon: Icon(Icons.schedule_rounded),
-                      suffixIcon: Icon(Icons.event_outlined),
-                      border: OutlineInputBorder(),
-                    ),
-                    child: Text(formatDateTime(_timestamp)),
+                TextFormField(
+                  key: const Key('comment-field'),
+                  controller: _commentController,
+                  textCapitalization: TextCapitalization.sentences,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Comment (optional)',
+                    hintText: 'e.g. Lunch with friends',
+                    prefixIcon: Icon(Icons.notes_rounded),
+                    border: OutlineInputBorder(),
                   ),
                 ),
+                const SizedBox(height: 16),
+                _buildTimingSection(theme),
                 const SizedBox(height: 8),
                 CheckboxListTile(
                   value: _saveAsPreset,
@@ -540,6 +591,83 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTimingSection(ThemeData theme) {
+    final colors = theme.colorScheme;
+    final selectedPeriod = _DayPeriod.forHour(_timestamp.hour);
+    final today = dateOnly(DateTime.now());
+    final yesterday = DateTime(today.year, today.month, today.day - 1);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Timing',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final period in _DayPeriod.values)
+              ChoiceChip(
+                key: Key('timing-${period.name}-chip'),
+                label: Text(period.label),
+                selected: selectedPeriod == period,
+                onSelected: _saving ? null : (_) => _applyPeriod(period),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Day',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              key: const Key('timing-today-chip'),
+              label: const Text('Today'),
+              selected: isSameDate(_timestamp, today),
+              onSelected: _saving ? null : (_) => _applyDay(today),
+            ),
+            ChoiceChip(
+              key: const Key('timing-yesterday-chip'),
+              label: const Text('Yesterday'),
+              selected: isSameDate(_timestamp, yesterday),
+              onSelected: _saving ? null : (_) => _applyDay(yesterday),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        InputDecorator(
+          decoration: InputDecoration(
+            labelText: 'Selected date & time',
+            prefixIcon: const Icon(Icons.schedule_rounded),
+            suffixIcon: IconButton(
+              key: const Key('custom-timing-button'),
+              tooltip: 'Set exact date and time',
+              onPressed: _saving ? null : _pickTiming,
+              icon: const Icon(Icons.edit_calendar_rounded),
+            ),
+            border: const OutlineInputBorder(),
+          ),
+          child: Text(
+            formatDateTime(_timestamp),
+            key: const Key('selected-timing-text'),
+          ),
+        ),
+      ],
     );
   }
 

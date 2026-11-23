@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:junk_food_tracker/core/models/app_config.dart';
 import 'package:junk_food_tracker/core/services/vault_service.dart';
+import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
@@ -75,80 +77,101 @@ void main() {
     expect(loaded.single.defaultCategory, preset.defaultCategory);
   });
 
-  test(
-    'daily log writes to logs/food/YYYY-MM-DD.json and reads back',
-    () async {
-      final date = DateTime(2026, 11, 23, 8, 30);
-      final entry = FoodEntry(
-        id: 'entry-1',
-        foodName: 'Oatmeal with Banana',
-        calories: 320,
-        category: 'Healthy',
-        timestamp: date,
-      );
+  test('daily logs share one file per month and read back', () async {
+    final firstDate = DateTime(2026, 11, 23, 8, 30);
+    final secondDate = DateTime(2026, 11, 24, 19);
+    final firstEntry = FoodEntry(
+      id: 'entry-1',
+      foodName: 'Oatmeal with Banana',
+      calories: 320,
+      category: 'Healthy',
+      timestamp: firstDate,
+    );
+    final secondEntry = FoodEntry(
+      id: 'entry-2',
+      foodName: 'Pizza',
+      calories: 600,
+      category: 'Junk',
+      timestamp: secondDate,
+    );
 
-      await vault.writeDailyLog(DailyFoodLog(date: date, entries: [entry]));
+    await vault.writeDailyLog(
+      DailyFoodLog(date: firstDate, entries: [firstEntry]),
+    );
+    await vault.writeDailyLog(
+      DailyFoodLog(date: secondDate, entries: [secondEntry]),
+    );
 
-      final file = File(
-        p.join(vault.foodLogsDirectory.path, '2026-11-23.json'),
-      );
-      expect(await file.exists(), isTrue);
+    final file = File(p.join(vault.foodLogsDirectory.path, '2026-11.json'));
+    expect(await file.exists(), isTrue);
+    expect(
+      await vault.foodLogsDirectory
+          .list()
+          .where((entity) => entity is File)
+          .length,
+      1,
+    );
 
-      final loaded = await vault.loadDailyLog(date);
-      expect(loaded.entries, hasLength(1));
-      expect(loaded.entries.single.foodName, 'Oatmeal with Banana');
-      expect(loaded.entries.single.calories, 320);
-      expect(loaded.entries.single.timestamp, date);
-      expect(loaded.totalCalories, 320);
-    },
-  );
+    final loadedFirst = await vault.loadDailyLog(firstDate);
+    expect(loadedFirst.entries, hasLength(1));
+    expect(loadedFirst.entries.single.foodName, 'Oatmeal with Banana');
+    expect(loadedFirst.entries.single.calories, 320);
+    expect(loadedFirst.entries.single.timestamp, firstDate);
+    expect(loadedFirst.totalCalories, 320);
+
+    final loadedSecond = await vault.loadDailyLog(secondDate);
+    expect(loadedSecond.entries.single.id, 'entry-2');
+
+    // Replacing one day's entries must preserve the rest of the month.
+    await vault.writeDailyLog(DailyFoodLog(date: firstDate, entries: const []));
+    expect((await vault.loadDailyLog(firstDate)).entries, isEmpty);
+    expect((await vault.loadDailyLog(secondDate)).entries.single.id, 'entry-2');
+  });
 
   test('missing daily log starts empty and is not created on read', () async {
     final date = DateTime(2026, 11, 22);
     final log = await vault.loadDailyLog(date);
 
     expect(log.entries, isEmpty);
-    expect(await vault.dailyLogFile(date).exists(), isFalse);
+    expect(await vault.monthlyLogFile(date).exists(), isFalse);
   });
 
   test('lists logged dates and merges ranges for trends', () async {
     final firstDate = DateTime(2026, 11, 21);
     final secondDate = DateTime(2026, 11, 22);
+    final thirdDate = DateTime(2026, 12, 2);
 
-    await vault.writeDailyLog(
-      DailyFoodLog(
-        date: firstDate,
-        entries: [
-          FoodEntry(
-            id: 'a',
-            foodName: 'Apple',
-            calories: 95,
-            category: 'Healthy',
-            timestamp: firstDate,
-          ),
-        ],
-      ),
-    );
-    await vault.writeDailyLog(
-      DailyFoodLog(
-        date: secondDate,
-        entries: [
-          FoodEntry(
-            id: 'b',
-            foodName: 'Pizza',
-            calories: 600,
-            category: 'Junk',
-            timestamp: secondDate,
-          ),
-        ],
-      ),
-    );
+    Future<void> write(String id, String name, int calories, DateTime date) {
+      return vault.writeDailyLog(
+        DailyFoodLog(
+          date: date,
+          entries: [
+            FoodEntry(
+              id: id,
+              foodName: name,
+              calories: calories,
+              category: 'Healthy',
+              timestamp: date,
+            ),
+          ],
+        ),
+      );
+    }
+
+    await write('a', 'Apple', 95, firstDate);
+    await write('b', 'Pizza', 600, secondDate);
+    await write('c', 'Soup', 180, thirdDate);
 
     final dates = await vault.listLoggedDates();
-    expect(dates, [firstDate, secondDate]);
+    expect(dates, [firstDate, secondDate, thirdDate]);
 
     final range = await vault.loadEntriesInRange(firstDate, secondDate);
     expect(range.map((entry) => entry.foodName), ['Pizza', 'Apple']);
+
+    final crossMonth = await vault.loadEntriesInRange(secondDate, thirdDate);
+    expect(crossMonth.map((entry) => entry.foodName), ['Soup', 'Pizza']);
+
+    expect(await vault.loadEntriesInRange(thirdDate, firstDate), isEmpty);
   });
 
   test('malformed config is quarantined and replaced with defaults', () async {
@@ -188,9 +211,9 @@ void main() {
     expect(presets.single.name, 'Apple');
   });
 
-  test('malformed daily logs are quarantined and read as empty', () async {
+  test('malformed monthly logs are quarantined and read as empty', () async {
     final date = DateTime(2026, 11, 20);
-    final file = vault.dailyLogFile(date);
+    final file = vault.monthlyLogFile(date);
     await file.writeAsString('{not valid json');
 
     final log = await vault.loadDailyLog(date);
@@ -214,18 +237,21 @@ void main() {
     expect((await vault.loadConfig()).dailyCalorieGoal, 1700);
   });
 
-  test('a daily log keeps valid entries when one entry is malformed', () async {
-    final date = DateTime(2026, 11, 19);
-    final file = vault.dailyLogFile(date);
-    await file.writeAsString('''
+  test(
+    'a monthly log keeps valid entries when one entry is malformed',
+    () async {
+      final date = DateTime(2026, 11, 19);
+      final file = vault.monthlyLogFile(date);
+      await file.writeAsString('''
 {
-  "date": "2026-11-19",
+  "month": "2026-11",
   "entries": [
     {
       "id": "good",
       "foodName": "Apple",
       "calories": 95,
       "category": "Healthy",
+      "comment": "Afternoon snack",
       "timestamp": "2026-11-19T09:00:00.000Z"
     },
     {
@@ -238,13 +264,15 @@ void main() {
 }
 ''');
 
-    final log = await vault.loadDailyLog(date);
+      final log = await vault.loadDailyLog(date);
 
-    expect(log.entries, hasLength(1));
-    expect(log.entries.single.id, 'good');
-    expect(log.totalCalories, 95);
-    expect(await file.exists(), isTrue);
-  });
+      expect(log.entries, hasLength(1));
+      expect(log.entries.single.id, 'good');
+      expect(log.entries.single.comment, 'Afternoon snack');
+      expect(log.totalCalories, 95);
+      expect(await file.exists(), isTrue);
+    },
+  );
 
   test('reopening a vault never overwrites existing data', () async {
     final date = DateTime(2026, 11, 18);
@@ -270,7 +298,7 @@ void main() {
     expect(log.entries.single.calories, 180);
   });
 
-  test('logged date listing ignores non-log files', () async {
+  test('logged date listing ignores non-log files and empty days', () async {
     final date = DateTime(2026, 11, 21);
     await vault.writeDailyLog(
       DailyFoodLog(
@@ -290,7 +318,125 @@ void main() {
         .writeAsString('not a log');
     await File(p.join(vault.foodLogsDirectory.path, '2026-11-22.json.tmp'))
         .writeAsString('{}');
+    await vault.writeDailyLog(
+      DailyFoodLog(date: DateTime(2026, 11, 20), entries: const []),
+    );
 
     expect(await vault.listLoggedDates(), [date]);
   });
+
+  test('legacy daily files migrate into one monthly file', () async {
+    final firstDate = DateTime(2026, 11, 21, 9);
+    final secondDate = DateTime(2026, 11, 22, 18);
+    final firstFile = File(
+      p.join(vault.foodLogsDirectory.path, '2026-11-21.json'),
+    );
+    final secondFile = File(
+      p.join(vault.foodLogsDirectory.path, '2026-11-22.json'),
+    );
+
+    await firstFile.writeAsString(
+      jsonEncode(
+        DailyFoodLog(
+          date: firstDate,
+          entries: [
+            FoodEntry(
+              id: 'legacy-1',
+              foodName: 'Apple',
+              calories: 95,
+              category: 'Healthy',
+              timestamp: firstDate,
+              comment: 'Old daily file',
+            ),
+          ],
+        ).toJson(),
+      ),
+    );
+    await secondFile.writeAsString(
+      jsonEncode(
+        DailyFoodLog(
+          date: secondDate,
+          entries: [
+            FoodEntry(
+              id: 'legacy-2',
+              foodName: 'Rice',
+              calories: 250,
+              category: 'Healthy',
+              timestamp: secondDate,
+            ),
+          ],
+        ).toJson(),
+      ),
+    );
+
+    final reopened = VaultService();
+    await reopened.initialize(tempDirectory.path);
+
+    expect(await firstFile.exists(), isFalse);
+    expect(await secondFile.exists(), isFalse);
+    expect(await reopened.monthlyLogFile(firstDate).exists(), isTrue);
+
+    final firstLog = await reopened.loadDailyLog(firstDate);
+    expect(firstLog.entries.single.id, 'legacy-1');
+    expect(firstLog.entries.single.comment, 'Old daily file');
+    expect(
+      (await reopened.loadDailyLog(secondDate)).entries.single.id,
+      'legacy-2',
+    );
+    expect(await reopened.listLoggedDates(), [
+      dateOnly(firstDate),
+      dateOnly(secondDate),
+    ]);
+    expect(
+      await reopened.loadEntriesInRange(firstDate, secondDate),
+      hasLength(2),
+    );
+  });
+
+  test(
+    'migration skips malformed legacy files without failing the vault',
+    () async {
+      final goodDate = DateTime(2026, 11, 20, 10);
+      final goodFile = File(
+        p.join(vault.foodLogsDirectory.path, '2026-11-20.json'),
+      );
+      final badFile = File(
+        p.join(vault.foodLogsDirectory.path, '2026-11-19.json'),
+      );
+
+      await goodFile.writeAsString(
+        jsonEncode(
+          DailyFoodLog(
+            date: goodDate,
+            entries: [
+              FoodEntry(
+                id: 'good-legacy',
+                foodName: 'Soup',
+                calories: 180,
+                category: 'Healthy',
+                timestamp: goodDate,
+              ),
+            ],
+          ).toJson(),
+        ),
+      );
+      await badFile.writeAsString('{not valid json');
+
+      final reopened = VaultService();
+      await reopened.initialize(tempDirectory.path);
+
+      expect(await goodFile.exists(), isFalse);
+      expect(await badFile.exists(), isFalse);
+      expect(
+        (await reopened.loadDailyLog(goodDate)).entries.single.id,
+        'good-legacy',
+      );
+
+      final backups = vault.foodLogsDirectory
+          .listSync()
+          .whereType<File>()
+          .where((candidate) => candidate.path.contains('.corrupt-'));
+      expect(backups, isNotEmpty);
+    },
+  );
 }

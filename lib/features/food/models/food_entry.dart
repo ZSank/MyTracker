@@ -5,7 +5,7 @@ import 'package:junk_food_tracker/core/models/tracker_entry.dart';
 /// [protein], [fats] and [sugar] are optional per-entry nutrition values;
 /// [calories] is the entry's total. [quantity] is the number of servings
 /// logged and [unit] is an optional label for what the quantity means
-/// (for example "g" or "ml").
+/// (for example "g" or "ml"). [comment] is an optional free-form note.
 class FoodEntry implements TrackerEntry {
   const FoodEntry({
     required this.id,
@@ -18,6 +18,7 @@ class FoodEntry implements TrackerEntry {
     this.sugar,
     this.quantity = 1,
     this.unit,
+    this.comment,
   }) : assert(calories >= 0, 'Calories cannot be negative.'),
        assert(quantity >= 0, 'Quantity cannot be negative.');
 
@@ -46,6 +47,7 @@ class FoodEntry implements TrackerEntry {
     final sugar = json['sugar'];
     final quantity = json['quantity'];
     final unit = json['unit'];
+    final comment = json['comment'];
 
     if (protein != null && protein is! num) {
       throw const FormatException('Invalid food entry protein field.');
@@ -61,6 +63,9 @@ class FoodEntry implements TrackerEntry {
     }
     if (unit != null && unit is! String) {
       throw const FormatException('Invalid food entry unit field.');
+    }
+    if (comment != null && comment is! String) {
+      throw const FormatException('Invalid food entry comment field.');
     }
 
     final parsedQuantity = quantity as num? ?? 1;
@@ -79,6 +84,7 @@ class FoodEntry implements TrackerEntry {
       sugar: sugar as num?,
       quantity: parsedQuantity,
       unit: unit as String?,
+      comment: comment as String?,
     );
   }
 
@@ -104,6 +110,9 @@ class FoodEntry implements TrackerEntry {
   /// Optional display label for the quantity, e.g. "g" or "ml".
   final String? unit;
 
+  /// Optional free-form note attached to this entry.
+  final String? comment;
+
   @override
   final DateTime timestamp;
 
@@ -118,6 +127,7 @@ class FoodEntry implements TrackerEntry {
     num? sugar,
     num? quantity,
     String? unit,
+    String? comment,
   }) {
     return FoodEntry(
       id: id ?? this.id,
@@ -130,6 +140,7 @@ class FoodEntry implements TrackerEntry {
       sugar: sugar ?? this.sugar,
       quantity: quantity ?? this.quantity,
       unit: unit ?? this.unit,
+      comment: comment ?? this.comment,
     );
   }
 
@@ -146,6 +157,7 @@ class FoodEntry implements TrackerEntry {
       if (sugar != null) 'sugar': sugar,
       'quantity': quantity,
       if (unit != null) 'unit': unit,
+      if (comment != null) 'comment': comment,
     };
   }
 }
