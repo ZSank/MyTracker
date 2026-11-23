@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
+import 'package:junk_food_tracker/features/settings/widgets/add_group_dialog.dart';
 import 'package:junk_food_tracker/features/settings/widgets/add_preset_dialog.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
 import 'package:junk_food_tracker/shared/widgets/category_chip.dart';
@@ -250,14 +251,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: OutlinedButton.icon(
-              key: const Key('add-preset-button'),
-              onPressed: () => _addPreset(state),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Add Pre-made Food'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
+            child: Column(
+              children: [
+                OutlinedButton.icon(
+                  key: const Key('add-preset-button'),
+                  onPressed: () => _addPreset(state),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Add Pre-made Food'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: const Key('add-group-button'),
+                  onPressed: () => _addGroup(state),
+                  icon: const Icon(Icons.lunch_dining_rounded),
+                  label: const Text('Add Pre-made Food Group'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -270,6 +285,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return ListTile(
       contentPadding: const EdgeInsets.only(left: 16, right: 4),
+      leading: preset.isGroup ? const Icon(Icons.lunch_dining_rounded) : null,
       title: Text(preset.name),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 4),
@@ -288,6 +304,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            if (preset.isGroup)
+              Text(
+                '${preset.items.length} items',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
           ],
         ),
       ),
@@ -389,6 +412,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (preset == null || !mounted) return;
     await state.upsertPreset(preset);
+  }
+
+  Future<void> _addGroup(TrackerState state) async {
+    final simplePresets = state.presets
+        .where((preset) => !preset.isGroup)
+        .toList();
+
+    if (simplePresets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Add a pre-made food first, then combine them into a group.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final group = await showDialog<FoodPreset>(
+      context: context,
+      builder: (_) => AddGroupDialog(
+        categories: state.foodCategories,
+        presets: simplePresets,
+      ),
+    );
+    if (group == null || !mounted) return;
+    await state.upsertPreset(group);
   }
 
   Future<void> _deletePreset(FoodPreset preset) async {

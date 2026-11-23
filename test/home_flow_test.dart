@@ -34,6 +34,8 @@ void main() {
     required int calories,
     required String category,
     int hour = 12,
+    num quantity = 1,
+    String? unit,
   }) async {
     final now = DateTime.now();
     final entry = FoodEntry(
@@ -42,6 +44,8 @@ void main() {
       calories: calories,
       category: category,
       timestamp: DateTime(now.year, now.month, now.day, hour),
+      quantity: quantity,
+      unit: unit,
     );
     await trackerState.addFoodEntry(entry);
     return entry;
@@ -100,6 +104,8 @@ void main() {
     expect(find.text('Greek Yogurt'), findsOneWidget);
     expect(find.text('150'), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('save-entry-button')));
     await tester.pumpAndSettle();
 
@@ -108,6 +114,120 @@ void main() {
     expect(log!.entries.single.foodName, 'Greek Yogurt');
     expect(log.entries.single.calories, 150);
     expect(log.entries.single.category, 'Healthy');
+  });
+
+  testWidgets('pre-made food nutrition scales with the entry quantity', (
+    tester,
+  ) async {
+    await trackerState.upsertPreset(
+      const FoodPreset(
+        id: 'preset-chapati',
+        name: 'Chapati',
+        calories: 120,
+        defaultCategory: 'Healthy',
+        protein: 3,
+        fats: 1,
+        sugar: 0.5,
+      ),
+    );
+
+    await pumpDashboard(tester);
+
+    await tester.tap(find.byKey(const Key('add-food-entry-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('Chapati'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('quantity-field')), '2');
+    await tester.pumpAndSettle();
+
+    String fieldText(Key key) {
+      return tester
+          .widget<EditableText>(
+            find.descendant(
+              of: find.byKey(key),
+              matching: find.byType(EditableText),
+            ),
+          )
+          .controller
+          .text;
+    }
+
+    expect(fieldText(const Key('calories-field')), '240');
+    expect(fieldText(const Key('protein-field')), '6');
+    expect(fieldText(const Key('fats-field')), '2');
+    expect(fieldText(const Key('sugar-field')), '1');
+
+    await tester.ensureVisible(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+
+    final log = vault.logs[dateKey(DateTime.now())];
+    expect(log, isNotNull);
+    final entry = log!.entries.single;
+    expect(entry.quantity, 2);
+    expect(entry.calories, 240);
+    expect(entry.protein, 6);
+    expect(entry.fats, 2);
+    expect(entry.sugar, 1);
+  });
+
+  testWidgets('group pre-made food shows its contents and logs the total', (
+    tester,
+  ) async {
+    await trackerState.upsertPreset(
+      const FoodPreset.group(
+        id: 'group-lunch',
+        name: 'Lunch',
+        defaultCategory: 'Healthy',
+        items: [
+          FoodGroupItem(
+            presetId: 'egg',
+            name: 'Egg',
+            quantity: 5,
+            calories: 70,
+            protein: 6,
+          ),
+          FoodGroupItem(
+            presetId: 'chapati',
+            name: 'Chapati',
+            quantity: 2,
+            calories: 120,
+            protein: 3,
+          ),
+        ],
+      ),
+    );
+
+    await pumpDashboard(tester);
+
+    await tester.tap(find.byKey(const Key('add-food-entry-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('Lunch ·'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('group-contents-group-lunch')),
+      findsOneWidget,
+    );
+    expect(find.text('Group contents · 2 items'), findsOneWidget);
+    expect(find.textContaining('5 · Egg'), findsOneWidget);
+    expect(find.textContaining('2 · Chapati'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+
+    final log = vault.logs[dateKey(DateTime.now())];
+    expect(log, isNotNull);
+    final entry = log!.entries.single;
+    expect(entry.foodName, 'Lunch');
+    expect(entry.calories, 590);
+    expect(entry.protein, 36);
+    expect(find.text('590 kcal'), findsOneWidget);
   });
 
   testWidgets('dashboard summary shows totals, junk and remaining goal', (
@@ -136,6 +256,26 @@ void main() {
     expect(find.text('Chicken Salad'), findsOneWidget);
     expect(find.text('Chocolate Bar'), findsOneWidget);
     expect(find.text('No food logged yet'), findsNothing);
+  });
+
+  testWidgets('entry cards show a quantity and unit badge', (tester) async {
+    await addTodayEntry(
+      id: 'quantity-entry',
+      name: 'Chapati',
+      calories: 240,
+      category: 'Healthy',
+      hour: 12,
+      quantity: 2,
+      unit: 'pieces',
+    );
+
+    await pumpDashboard(tester);
+
+    expect(
+      find.byKey(const ValueKey('entry-quantity-quantity-entry')),
+      findsOneWidget,
+    );
+    expect(find.text('2 pieces'), findsOneWidget);
   });
 
   testWidgets('add food form requires a name and calories', (tester) async {
@@ -186,6 +326,44 @@ void main() {
     await tester.tap(find.byKey(const Key('add-food-entry-button')));
     await tester.pumpAndSettle();
     expect(find.text('Chicken Wrap · 520 kcal'), findsOneWidget);
+  });
+
+  testWidgets('saving a multi-serving entry stores per-serving preset values', (
+    tester,
+  ) async {
+    await pumpDashboard(tester);
+
+    await tester.tap(find.byKey(const Key('add-food-entry-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('food-name-field')), 'Chapati');
+    await tester.enterText(find.byKey(const Key('calories-field')), '240');
+    await tester.enterText(find.byKey(const Key('quantity-field')), '2');
+    await tester.enterText(find.byKey(const Key('protein-field')), '6');
+    await tester.enterText(find.byKey(const Key('fats-field')), '2');
+    await tester.enterText(find.byKey(const Key('sugar-field')), '1');
+
+    await tester.ensureVisible(find.text('Save as pre-made food'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save as pre-made food'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-entry-button')));
+    await tester.pumpAndSettle();
+
+    final preset = vault.presets.single;
+    expect(preset.name, 'Chapati');
+    expect(preset.calories, 120);
+    expect(preset.protein, 3);
+    expect(preset.fats, 1);
+    expect(preset.sugar, 0.5);
+
+    final log = vault.logs[dateKey(DateTime.now())];
+    expect(log, isNotNull);
+    expect(log!.entries.single.quantity, 2);
+    expect(log.entries.single.calories, 240);
   });
 
   testWidgets('add food form saves the selected category', (tester) async {

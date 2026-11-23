@@ -158,6 +158,81 @@ void main() {
       expect(updated.calories, 350);
       expect(updated.category, 'Snacks');
     });
+
+    test('round-trips optional nutrition, quantity and unit', () {
+      final entry = FoodEntry(
+        id: 'entry-nutrition',
+        foodName: 'Chapati',
+        calories: 240,
+        category: 'Healthy',
+        timestamp: DateTime(2026, 11, 23, 12, 30),
+        protein: 6,
+        fats: 2.5,
+        sugar: 1,
+        quantity: 2,
+        unit: 'piece',
+      );
+
+      final restored = FoodEntry.fromJson(entry.toJson());
+
+      expect(restored.protein, 6);
+      expect(restored.fats, 2.5);
+      expect(restored.sugar, 1);
+      expect(restored.quantity, 2);
+      expect(restored.unit, 'piece');
+      expect(restored.calories, 240);
+    });
+
+    test('older entries without optional fields default to one serving', () {
+      final entry = FoodEntry.fromJson({
+        'id': 'legacy',
+        'foodName': 'Apple',
+        'calories': 95,
+        'category': 'Healthy',
+        'timestamp': '2026-11-23T09:00:00.000Z',
+      });
+
+      expect(entry.protein, isNull);
+      expect(entry.fats, isNull);
+      expect(entry.sugar, isNull);
+      expect(entry.quantity, 1);
+      expect(entry.unit, isNull);
+    });
+
+    test('fromJson rejects malformed optional fields', () {
+      Map<String, dynamic> base() => {
+        'id': 'entry',
+        'foodName': 'Soup',
+        'calories': 100,
+        'category': 'Healthy',
+        'timestamp': '2026-11-23T09:00:00.000Z',
+      };
+
+      expect(
+        () => FoodEntry.fromJson({...base(), 'protein': 'high'}),
+        throwsFormatException,
+      );
+      expect(
+        () => FoodEntry.fromJson({...base(), 'fats': 'some'}),
+        throwsFormatException,
+      );
+      expect(
+        () => FoodEntry.fromJson({...base(), 'sugar': []}),
+        throwsFormatException,
+      );
+      expect(
+        () => FoodEntry.fromJson({...base(), 'quantity': 'two'}),
+        throwsFormatException,
+      );
+      expect(
+        () => FoodEntry.fromJson({...base(), 'quantity': -1}),
+        throwsFormatException,
+      );
+      expect(
+        () => FoodEntry.fromJson({...base(), 'unit': 3}),
+        throwsFormatException,
+      );
+    });
   });
 
   group('FoodPreset', () {
@@ -207,6 +282,133 @@ void main() {
       expect(updated.name, original.name);
       expect(updated.defaultCategory, original.defaultCategory);
       expect(updated.calories, 170);
+    });
+
+    test('simple presets keep optional nutrition values', () {
+      const preset = FoodPreset(
+        id: 'preset-1',
+        name: 'Greek Yogurt',
+        calories: 150,
+        defaultCategory: 'Healthy',
+        protein: 10,
+        fats: 4.5,
+        sugar: 6,
+      );
+
+      final restored = FoodPreset.fromJson(preset.toJson());
+
+      expect(restored.type, FoodPresetType.simple);
+      expect(restored.protein, 10);
+      expect(restored.fats, 4.5);
+      expect(restored.sugar, 6);
+    });
+
+    test('presets without a type are loaded as simple foods', () {
+      final preset = FoodPreset.fromJson({
+        'id': 'legacy',
+        'name': 'Yogurt',
+        'calories': 150,
+        'defaultCategory': 'Healthy',
+      });
+
+      expect(preset.type, FoodPresetType.simple);
+      expect(preset.isGroup, isFalse);
+      expect(preset.calories, 150);
+    });
+
+    test('group presets total their items and round-trip', () {
+      const group = FoodPreset.group(
+        id: 'group-lunch',
+        name: 'Lunch',
+        defaultCategory: 'Healthy',
+        items: [
+          FoodGroupItem(
+            presetId: 'egg',
+            name: 'Egg',
+            quantity: 5,
+            calories: 70,
+            protein: 6,
+            fats: 5,
+            sugar: 0.2,
+          ),
+          FoodGroupItem(
+            presetId: 'chapati',
+            name: 'Chapati',
+            quantity: 2,
+            calories: 120,
+            protein: 3,
+            fats: 1,
+            sugar: 0.5,
+          ),
+          FoodGroupItem(
+            presetId: 'sprouts',
+            name: 'Sprouts',
+            quantity: 1,
+            unit: '100 g',
+            calories: 30,
+            protein: 3,
+            fats: 0.2,
+            sugar: 0.5,
+          ),
+        ],
+      );
+
+      expect(group.isGroup, isTrue);
+      expect(group.calories, 620);
+      expect(group.protein, 39);
+      expect(group.fats, closeTo(27.2, 0.0001));
+      expect(group.sugar, closeTo(2.5, 0.0001));
+
+      final restored = FoodPreset.fromJson(group.toJson());
+
+      expect(restored.isGroup, isTrue);
+      expect(restored.items, hasLength(3));
+      expect(restored.items.last.name, 'Sprouts');
+      expect(restored.items.last.unit, '100 g');
+      expect(restored.items.last.totalCalories, 30);
+      expect(restored.calories, 620);
+      expect(restored.protein, 39);
+      expect(restored.defaultCategory, 'Healthy');
+    });
+
+    test('group parsing skips malformed items', () {
+      final preset = FoodPreset.fromJson({
+        'id': 'group-lunch',
+        'name': 'Lunch',
+        'defaultCategory': 'Healthy',
+        'type': 'group',
+        'items': [
+          {'presetId': 'egg', 'name': 'Egg', 'quantity': 2, 'calories': 70},
+          {'name': 'Broken'},
+          'not-a-map',
+        ],
+      });
+
+      expect(preset.items, hasLength(1));
+      expect(preset.items.single.name, 'Egg');
+      expect(preset.calories, 140);
+    });
+
+    test('fromJson rejects unknown types and group presets without items', () {
+      expect(
+        () => FoodPreset.fromJson({
+          'id': 'preset-1',
+          'name': 'Yogurt',
+          'calories': 150,
+          'defaultCategory': 'Healthy',
+          'type': 'meal',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => FoodPreset.fromJson({
+          'id': 'preset-1',
+          'name': 'Yogurt',
+          'defaultCategory': 'Healthy',
+          'type': 'group',
+        }),
+        throwsFormatException,
+      );
     });
   });
 

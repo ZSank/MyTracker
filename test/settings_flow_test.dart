@@ -196,6 +196,127 @@ void main() {
     expect(trackerState.presets, isEmpty);
   });
 
+  testWidgets('grouped pre-made foods can be created', (tester) async {
+    await trackerState.upsertPreset(
+      const FoodPreset(
+        id: 'preset-egg',
+        name: 'Egg',
+        calories: 70,
+        defaultCategory: 'Healthy',
+        protein: 6,
+        fats: 5,
+      ),
+    );
+    await trackerState.upsertPreset(
+      const FoodPreset(
+        id: 'preset-chapati',
+        name: 'Chapati',
+        calories: 120,
+        defaultCategory: 'Healthy',
+        protein: 3,
+        fats: 1,
+      ),
+    );
+
+    await openSettings(tester);
+    await scrollSettingsTo(tester, find.byKey(const Key('add-group-button')));
+
+    await tester.tap(find.byKey(const Key('add-group-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New Pre-made Food Group'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('group-name-field')), 'Lunch');
+    await tester.enterText(
+      find.byKey(const Key('group-item-quantity-field')),
+      '5',
+    );
+    await tester.tap(find.byKey(const Key('add-group-item-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('5 · 350 kcal'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('group-item-preset-field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chapati · 120 kcal').last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('group-item-quantity-field')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('group-item-unit-field')),
+      'pieces',
+    );
+    await tester.tap(find.byKey(const Key('add-group-item-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Total · 590 kcal'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('add-group-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lunch'), findsOneWidget);
+    expect(find.text('2 items'), findsOneWidget);
+
+    final group = vault.presets.firstWhere((preset) => preset.name == 'Lunch');
+    expect(group.isGroup, isTrue);
+    expect(group.items, hasLength(2));
+    expect(group.items.first.quantity, 5);
+    expect(group.items.last.name, 'Chapati');
+    expect(group.items.last.unit, 'pieces');
+    expect(group.calories, 590);
+    expect(group.protein, 36);
+  });
+
+  testWidgets('group creation asks for a simple pre-made food first', (
+    tester,
+  ) async {
+    await openSettings(tester);
+    await scrollSettingsTo(tester, find.byKey(const Key('add-group-button')));
+
+    await tester.tap(find.byKey(const Key('add-group-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Add a pre-made food first, then combine them into a group.'),
+      findsOneWidget,
+    );
+    expect(trackerState.presets, isEmpty);
+  });
+
+  testWidgets('new pre-made food dialog saves optional nutrition', (
+    tester,
+  ) async {
+    await openSettings(tester);
+    await scrollSettingsTo(tester, find.byKey(const Key('add-preset-button')));
+
+    await tester.tap(find.byKey(const Key('add-preset-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('preset-name-field')),
+      'Sprouts',
+    );
+    await tester.enterText(
+      find.byKey(const Key('preset-calories-field')),
+      '30',
+    );
+    await tester.enterText(find.byKey(const Key('preset-protein-field')), '3');
+    await tester.enterText(find.byKey(const Key('preset-fats-field')), '0.2');
+    await tester.enterText(find.byKey(const Key('preset-sugar-field')), '0.5');
+    await tester.tap(find.byKey(const Key('add-preset-confirm')));
+    await tester.pumpAndSettle();
+
+    final preset = vault.presets.single;
+    expect(preset.name, 'Sprouts');
+    expect(preset.calories, 30);
+    expect(preset.protein, 3);
+    expect(preset.fats, 0.2);
+    expect(preset.sugar, 0.5);
+  });
+
   testWidgets('settings shows the current vault folder', (tester) async {
     await openSettings(tester);
 

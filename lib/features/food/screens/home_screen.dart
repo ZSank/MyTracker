@@ -336,6 +336,26 @@ class _EntryCard extends StatelessWidget {
                 runSpacing: 4,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
+                  if (entry.quantity != 1 ||
+                      (entry.unit?.trim().isNotEmpty ?? false))
+                    Container(
+                      key: ValueKey('entry-quantity-${entry.id}'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.primaryContainer,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        formatEntryQuantity(entry),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colors.onPrimaryContainer,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   CategoryChip(category: entry.category, isJunk: isJunk),
                   Text(
                     formatEntryTime(entry.timestamp),

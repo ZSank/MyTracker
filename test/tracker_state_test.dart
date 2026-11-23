@@ -156,6 +156,85 @@ void main() {
     expect(saved.single.calories, 110);
   });
 
+  test('grouped presets keep their items when reloaded', () async {
+    const group = FoodPreset.group(
+      id: 'group-lunch',
+      name: 'Lunch',
+      defaultCategory: 'Healthy',
+      items: [
+        FoodGroupItem(
+          presetId: 'egg',
+          name: 'Egg',
+          quantity: 5,
+          calories: 70,
+          protein: 6,
+          fats: 5,
+          sugar: 0.2,
+        ),
+        FoodGroupItem(
+          presetId: 'chapati',
+          name: 'Chapati',
+          quantity: 2,
+          calories: 120,
+          protein: 3,
+          fats: 1,
+          sugar: 0.5,
+        ),
+      ],
+    );
+
+    await state.upsertPreset(group);
+    expect(state.presets.single.isGroup, isTrue);
+    expect(state.presets.single.calories, 590);
+
+    final reader = VaultService();
+    await reader.initialize(tempDirectory.path);
+    final saved = await reader.loadPresets();
+
+    expect(saved.single.isGroup, isTrue);
+    expect(saved.single.items, hasLength(2));
+    expect(saved.single.items.first.name, 'Egg');
+    expect(saved.single.items.first.quantity, 5);
+    expect(saved.single.calories, 590);
+    expect(saved.single.protein, 36);
+  });
+
+  test(
+    'deleting a source preset keeps grouped pre-made foods intact',
+    () async {
+      const egg = FoodPreset(
+        id: 'preset-egg',
+        name: 'Egg',
+        calories: 70,
+        defaultCategory: 'Healthy',
+        protein: 6,
+      );
+      const group = FoodPreset.group(
+        id: 'group-lunch',
+        name: 'Lunch',
+        defaultCategory: 'Healthy',
+        items: [
+          FoodGroupItem(
+            presetId: 'preset-egg',
+            name: 'Egg',
+            quantity: 5,
+            calories: 70,
+            protein: 6,
+          ),
+        ],
+      );
+
+      await state.upsertPreset(egg);
+      await state.upsertPreset(group);
+      await state.deletePreset(egg.id);
+
+      expect(state.presets.single.name, 'Lunch');
+      expect(state.presets.single.isGroup, isTrue);
+      expect(state.presets.single.calories, 350);
+      expect(state.presets.single.protein, 30);
+    },
+  );
+
   test('editing an entry moves it between daily logs', () async {
     final now = DateTime.now();
     final yesterday = DateTime(now.year, now.month, now.day - 1, 10);

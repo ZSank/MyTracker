@@ -32,9 +32,14 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _caloriesController;
+  late final TextEditingController _quantityController;
+  late final TextEditingController _unitController;
+  late final TextEditingController _proteinController;
+  late final TextEditingController _fatsController;
+  late final TextEditingController _sugarController;
   late DateTime _timestamp;
   String? _category;
-  String? _selectedPresetId;
+  FoodPreset? _selectedPreset;
   bool _saveAsPreset = false;
   bool _saving = false;
 
@@ -50,6 +55,15 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     _caloriesController = TextEditingController(
       text: entry == null ? '' : entry.calories.toString(),
     );
+    _quantityController = TextEditingController(
+      text: entry == null ? '1' : formatQuantity(entry.quantity),
+    );
+    _unitController = TextEditingController(text: entry?.unit ?? '');
+    _proteinController = TextEditingController(
+      text: _optionalText(entry?.protein),
+    );
+    _fatsController = TextEditingController(text: _optionalText(entry?.fats));
+    _sugarController = TextEditingController(text: _optionalText(entry?.sugar));
     _timestamp = entry?.timestamp ?? DateTime.now();
 
     final fallbackCategory = state.foodCategories.isNotEmpty
@@ -62,22 +76,68 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   void dispose() {
     _nameController.dispose();
     _caloriesController.dispose();
+    _quantityController.dispose();
+    _unitController.dispose();
+    _proteinController.dispose();
+    _fatsController.dispose();
+    _sugarController.dispose();
     super.dispose();
   }
 
+  static String _optionalText(num? value) =>
+      value == null ? '' : formatQuantity(value);
+
+  num? _parsedQuantity(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return null;
+    return num.tryParse(text);
+  }
+
+  num? _optionalValue(TextEditingController controller) {
+    final text = controller.text.trim();
+    if (text.isEmpty) return null;
+    return num.tryParse(text);
+  }
+
+  void _fillNutrition(FoodPreset preset, num quantity) {
+    _caloriesController.text = (preset.calories * quantity).round().toString();
+    _proteinController.text = preset.protein == null
+        ? ''
+        : formatQuantity(preset.protein! * quantity);
+    _fatsController.text = preset.fats == null
+        ? ''
+        : formatQuantity(preset.fats! * quantity);
+    _sugarController.text = preset.sugar == null
+        ? ''
+        : formatQuantity(preset.sugar! * quantity);
+  }
+
   void _applyPreset(FoodPreset preset) {
+    var quantity = _parsedQuantity(_quantityController.text) ?? 1;
+    if (quantity <= 0) quantity = 1;
+
     setState(() {
-      _selectedPresetId = preset.id;
+      _selectedPreset = preset;
       _nameController.text = preset.name;
-      _caloriesController.text = preset.calories.toString();
       _category = preset.defaultCategory;
       _saveAsPreset = false;
+      _quantityController.text = formatQuantity(quantity);
+      _fillNutrition(preset, quantity);
     });
   }
 
+  void _onQuantityChanged(String value) {
+    final preset = _selectedPreset;
+    if (preset == null) return;
+
+    final quantity = _parsedQuantity(value);
+    if (quantity == null || quantity <= 0) return;
+    _fillNutrition(preset, quantity);
+  }
+
   void _clearPresetSelection() {
-    if (_selectedPresetId != null) {
-      setState(() => _selectedPresetId = null);
+    if (_selectedPreset != null) {
+      setState(() => _selectedPreset = null);
     }
   }
 
@@ -118,7 +178,13 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     final state = context.read<TrackerState>();
     final category = _category;
     final calories = int.tryParse(_caloriesController.text.trim());
-    if (category == null || calories == null) return;
+    final quantity = _parsedQuantity(_quantityController.text);
+    if (category == null || calories == null || quantity == null) return;
+
+    final protein = _optionalValue(_proteinController);
+    final fats = _optionalValue(_fatsController);
+    final sugar = _optionalValue(_sugarController);
+    final unit = _unitController.text.trim();
 
     setState(() => _saving = true);
 
@@ -130,6 +196,11 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         calories: calories,
         category: category,
         timestamp: _timestamp,
+        protein: protein,
+        fats: fats,
+        sugar: sugar,
+        quantity: quantity,
+        unit: unit.isEmpty ? null : unit,
       );
 
       if (widget.entry != null) {
@@ -146,8 +217,11 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
           FoodPreset(
             id: _uuid.v4(),
             name: name,
-            calories: calories,
+            calories: (calories / quantity).round(),
             defaultCategory: category,
+            protein: protein == null ? null : protein / quantity,
+            fats: fats == null ? null : fats / quantity,
+            sugar: sugar == null ? null : sugar / quantity,
           ),
         );
       }
@@ -174,6 +248,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     if (_category != null) categories.add(_category!);
     if (categories.isEmpty) categories.add('Uncategorized');
     final categoryList = categories.toList()..sort();
+    final selectedPreset = _selectedPreset;
 
     return PopScope(
       canPop: !_saving,
@@ -229,8 +304,13 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                             '${preset.name} · '
                             '${formatNumber(preset.calories)} kcal',
                           ),
-                          avatar: const Icon(Icons.bolt_rounded, size: 18),
-                          selected: _selectedPresetId == preset.id,
+                          avatar: Icon(
+                            preset.isGroup
+                                ? Icons.lunch_dining_rounded
+                                : Icons.bolt_rounded,
+                            size: 18,
+                          ),
+                          selected: selectedPreset?.id == preset.id,
                           onSelected: (_) => _applyPreset(preset),
                         );
                       },
@@ -246,6 +326,10 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                ],
+                if (selectedPreset != null && selectedPreset.isGroup) ...[
+                  _GroupContentsCard(preset: selectedPreset),
+                  const SizedBox(height: 16),
                 ],
                 TextFormField(
                   key: const Key('food-name-field'),
@@ -297,6 +381,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        key: ValueKey('category-${_category ?? 'none'}'),
                         initialValue: _category,
                         isExpanded: true,
                         decoration: const InputDecoration(
@@ -316,12 +401,90 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                         onChanged: (value) {
                           setState(() {
                             _category = value;
-                            _selectedPresetId = null;
+                            _selectedPreset = null;
                           });
                         },
                         validator: (value) =>
                             value == null ? 'Choose a category' : null,
                       ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        key: const Key('quantity-field'),
+                        controller: _quantityController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d*'),
+                          ),
+                        ],
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Quantity',
+                          hintText: '1',
+                          prefixIcon: Icon(Icons.numbers_rounded),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          final parsed = _parsedQuantity(value);
+                          if (parsed == null) return 'Enter a quantity';
+                          if (parsed <= 0) return 'Must be above zero';
+                          return null;
+                        },
+                        onChanged: _onQuantityChanged,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        key: const Key('unit-field'),
+                        controller: _unitController,
+                        textCapitalization: TextCapitalization.none,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Unit (optional)',
+                          hintText: 'g, ml, piece',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Nutrition per entry (optional)',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildNutritionField(
+                      key: const Key('protein-field'),
+                      label: 'Protein',
+                      controller: _proteinController,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildNutritionField(
+                      key: const Key('fats-field'),
+                      label: 'Fats',
+                      controller: _fatsController,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildNutritionField(
+                      key: const Key('sugar-field'),
+                      label: 'Sugar',
+                      controller: _sugarController,
                     ),
                   ],
                 ),
@@ -376,6 +539,100 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildNutritionField({
+    required Key key,
+    required String label,
+    required TextEditingController controller,
+  }) {
+    return Expanded(
+      child: TextFormField(
+        key: key,
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+        ],
+        textInputAction: TextInputAction.next,
+        decoration: InputDecoration(
+          labelText: label,
+          suffixText: 'g',
+          border: const OutlineInputBorder(),
+        ),
+        validator: optionalNumberValidator,
+        onChanged: (_) => _clearPresetSelection(),
+      ),
+    );
+  }
+}
+
+class _GroupContentsCard extends StatelessWidget {
+  const _GroupContentsCard({required this.preset});
+
+  final FoodPreset preset;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
+    return Container(
+      key: ValueKey('group-contents-${preset.id}'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.lunch_dining_rounded,
+                size: 18,
+                color: colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Group contents · ${preset.items.length} items',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          for (final item in preset.items)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${formatQuantityWithUnit(item.quantity, item.unit)}'
+                      ' · ${item.name}',
+                      style: theme.textTheme.bodySmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${formatNumber(item.totalCalories)} kcal',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
