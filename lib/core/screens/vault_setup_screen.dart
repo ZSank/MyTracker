@@ -22,25 +22,29 @@ class VaultSetupScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Center(
-                    child: Container(
-                      width: 88,
-                      height: 88,
-                      decoration: BoxDecoration(
-                        color: colors.primaryContainer,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.folder_special_rounded,
-                        size: 44,
-                        color: colors.onPrimaryContainer,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.asset(
+                        'assets/app_logo.jpg',
+                        width: 88,
+                        height: 88,
+                        fit: BoxFit.cover,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 16),
                   Text(
-                    'Set up your vault',
+                    'StrideTracker',
                     style: theme.textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Set up your vault',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
                     ),
                     textAlign: TextAlign.center,
                   ),

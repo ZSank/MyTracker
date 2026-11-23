@@ -180,6 +180,145 @@ void main() {
     expect(vault.presets, isEmpty);
   });
 
+  testWidgets('pre-made foods can be edited without changing their id', (
+    tester,
+  ) async {
+    await trackerState.upsertPreset(
+      const FoodPreset(
+        id: 'preset-edit',
+        name: 'Oats',
+        calories: 300,
+        defaultCategory: 'Healthy',
+        protein: 10,
+      ),
+    );
+
+    await openSettings(tester);
+    await scrollSettingsTo(tester, find.text('Oats'));
+
+    final presetTile = find.ancestor(
+      of: find.text('Oats'),
+      matching: find.byType(ListTile),
+    );
+    await tester.tap(
+      find.descendant(
+        of: presetTile,
+        matching: find.byTooltip('Edit pre-made food'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit Pre-made Food'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('preset-name-field')),
+      'Oats and Honey',
+    );
+    await tester.enterText(
+      find.byKey(const Key('preset-calories-field')),
+      '350',
+    );
+    await tester.enterText(find.byKey(const Key('preset-protein-field')), '12');
+    await tester.tap(find.byKey(const Key('add-preset-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit Pre-made Food'), findsNothing);
+    expect(find.text('Oats and Honey'), findsOneWidget);
+    expect(find.text('350 kcal'), findsOneWidget);
+
+    final preset = trackerState.presets.single;
+    expect(preset.id, 'preset-edit');
+    expect(preset.name, 'Oats and Honey');
+    expect(preset.calories, 350);
+    expect(preset.protein, 12);
+    expect(vault.presets.single.name, 'Oats and Honey');
+  });
+
+  testWidgets('grouped pre-made foods can be edited', (tester) async {
+    await trackerState.upsertPreset(
+      const FoodPreset(
+        id: 'preset-egg',
+        name: 'Egg',
+        calories: 70,
+        defaultCategory: 'Healthy',
+      ),
+    );
+    await trackerState.upsertPreset(
+      const FoodPreset(
+        id: 'preset-chapati',
+        name: 'Chapati',
+        calories: 120,
+        defaultCategory: 'Healthy',
+      ),
+    );
+    await trackerState.upsertPreset(
+      const FoodPreset.group(
+        id: 'group-lunch',
+        name: 'Lunch',
+        defaultCategory: 'Healthy',
+        items: [
+          FoodGroupItem(
+            presetId: 'preset-egg',
+            name: 'Egg',
+            quantity: 2,
+            calories: 70,
+          ),
+        ],
+      ),
+    );
+
+    await openSettings(tester);
+    await scrollSettingsTo(tester, find.text('Lunch'));
+
+    final groupTile = find.ancestor(
+      of: find.text('Lunch'),
+      matching: find.byType(ListTile),
+    );
+    await tester.tap(
+      find.descendant(
+        of: groupTile,
+        matching: find.byTooltip('Edit pre-made food'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit Pre-made Food Group'), findsOneWidget);
+    expect(find.text('2 · 140 kcal'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('group-name-field')),
+      'Big Lunch',
+    );
+    await tester.tap(find.byTooltip('Remove Egg'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group-item-preset-field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chapati · 120 kcal').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('add-group-item-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Total · 120 kcal'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('add-group-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Big Lunch'), findsOneWidget);
+    final group = trackerState.presets.firstWhere(
+      (preset) => preset.id == 'group-lunch',
+    );
+    expect(group.name, 'Big Lunch');
+    expect(group.items, hasLength(1));
+    expect(group.items.single.name, 'Chapati');
+    expect(group.calories, 120);
+    expect(
+      vault.presets.firstWhere((preset) => preset.id == 'group-lunch').name,
+      'Big Lunch',
+    );
+  });
+
   testWidgets('new pre-made food dialog validates its fields', (tester) async {
     await openSettings(tester);
     await scrollSettingsTo(tester, find.byKey(const Key('add-preset-button')));

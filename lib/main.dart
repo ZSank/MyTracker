@@ -24,7 +24,7 @@ class JunkFoodTrackerApp extends StatelessWidget {
         return TrackerState()..init();
       },
       child: MaterialApp(
-        title: 'Personal Tracker',
+        title: 'StrideTracker',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:junk_food_tracker/core/models/app_config.dart';
+import 'package:junk_food_tracker/core/services/vault_access.dart';
 import 'package:junk_food_tracker/core/services/vault_service.dart';
 import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
@@ -172,7 +173,12 @@ class TrackerState extends ChangeNotifier {
   Future<void> chooseVaultFolder() =>
       _selectVault(VaultService.pickVaultDirectory);
 
-  Future<void> useDefaultVault() => _selectVault(VaultService.defaultVaultPath);
+  Future<void> useDefaultVault() => _selectVault(() async {
+        // Default location lives inside the app sandbox / app-specific
+        // storage, so any previous user-folder bookmark must be cleared.
+        await VaultAccess.clearPersistedAccess();
+        return VaultService.defaultVaultPath();
+      });
 
   Future<void> setVaultPath(String path) async {
     final trimmed = path.trim();

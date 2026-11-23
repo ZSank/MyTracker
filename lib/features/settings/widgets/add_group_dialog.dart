@@ -10,12 +10,19 @@ class AddGroupDialog extends StatefulWidget {
     super.key,
     required this.categories,
     required this.presets,
+    this.group,
   });
 
   final List<String> categories;
 
   /// Simple presets that can be added to the group.
   final List<FoodPreset> presets;
+
+  /// When provided, the dialog edits this grouped pre-made food instead of
+  /// creating a new one.
+  final FoodPreset? group;
+
+  bool get isEditing => group != null;
 
   @override
   State<AddGroupDialog> createState() => _AddGroupDialogState();
@@ -38,9 +45,14 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
   @override
   void initState() {
     super.initState();
-    _category = widget.categories.isNotEmpty
-        ? widget.categories.first
-        : 'Uncategorized';
+    final group = widget.group;
+    _category =
+        group?.defaultCategory ??
+        (widget.categories.isNotEmpty
+            ? widget.categories.first
+            : 'Uncategorized');
+    _items = group?.items ?? const [];
+    _nameController.text = group?.name ?? '';
     _selectedPreset = widget.presets.isEmpty ? null : widget.presets.first;
   }
 
@@ -105,7 +117,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
 
     Navigator.of(context).pop(
       FoodPreset.group(
-        id: _uuid.v4(),
+        id: widget.group?.id ?? _uuid.v4(),
         name: _nameController.text.trim(),
         defaultCategory: _category,
         items: List.unmodifiable(_items),
@@ -121,7 +133,11 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
       ..sort();
 
     return AlertDialog(
-      title: const Text('New Pre-made Food Group'),
+      title: Text(
+        widget.isEditing
+            ? 'Edit Pre-made Food Group'
+            : 'New Pre-made Food Group',
+      ),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: Form(
@@ -309,7 +325,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
         FilledButton(
           key: const Key('add-group-confirm'),
           onPressed: _submit,
-          child: const Text('Add'),
+          child: Text(widget.isEditing ? 'Save' : 'Add'),
         ),
       ],
     );

@@ -119,7 +119,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: Text(
               'Switching folders does not delete the old vault. Each folder '
-              'keeps its own JSON files.',
+              'keeps its own JSON files. Choose the folder that already '
+              'contains your vault data so the app can keep access to it.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colors.onSurfaceVariant,
               ),
@@ -314,12 +315,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ),
-      trailing: IconButton(
-        tooltip: 'Delete pre-made food',
-        color: theme.colorScheme.error,
-        onPressed: () => _deletePreset(preset),
-        icon: const Icon(Icons.delete_outline_rounded),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: Key('edit-preset-${preset.id}'),
+            tooltip: 'Edit pre-made food',
+            onPressed: () => _editPreset(state, preset),
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: 'Delete pre-made food',
+            color: theme.colorScheme.error,
+            onPressed: () => _deletePreset(preset),
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
+        ],
       ),
+      onTap: () => _editPreset(state, preset),
     );
   }
 
@@ -439,6 +452,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (group == null || !mounted) return;
     await state.upsertPreset(group);
+  }
+
+  Future<void> _editPreset(TrackerState state, FoodPreset preset) async {
+    final updated = await showDialog<FoodPreset>(
+      context: context,
+      builder: (_) => preset.isGroup
+          ? AddGroupDialog(
+              categories: state.foodCategories,
+              presets: state.presets.where((item) => !item.isGroup).toList(),
+              group: preset,
+            )
+          : AddPresetDialog(categories: state.foodCategories, preset: preset),
+    );
+    if (updated == null || !mounted) return;
+    await state.upsertPreset(updated);
   }
 
   Future<void> _deletePreset(FoodPreset preset) async {

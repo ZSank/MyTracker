@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:junk_food_tracker/core/models/app_config.dart';
+import 'package:junk_food_tracker/core/services/vault_access.dart';
+import 'package:junk_food_tracker/core/services/vault_store.dart';
 import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
@@ -38,11 +39,20 @@ class VaultService {
   static final RegExp _monthFilePattern = RegExp(r'^\d{4}-\d{2}$');
 
   String? _rootPath;
+  VaultStore? _store;
   Future<void> _writeTail = Future<void>.value();
 
-  bool get isInitialized => _rootPath != null;
+  bool get isInitialized => _rootPath != null && _store != null;
 
   String? get rootPath => _rootPath;
+
+  VaultStore get _vaultStore {
+    final store = _store;
+    if (store == null) {
+      throw StateError('The vault has not been initialized yet.');
+    }
+    return store;
+  }
 
   String get _root {
     final root = _rootPath;
@@ -52,33 +62,40 @@ class VaultService {
     return root;
   }
 
-  File get configFile => File(p.join(_root, configFileName));
+  bool get _isFilesystemRoot => !VaultStore.isContentUri(_root);
 
-  File get presetsFile => File(p.join(_root, presetsFileName));
+  /// Local file handle for tests and filesystem-backed vaults.
+  File get configFile {
+    _ensureFilesystemRoot();
+    return File(p.join(_root, configFileName));
+  }
 
-  Directory get foodLogsDirectory => Directory(p.join(_root, 'logs', 'food'));
+  File get presetsFile {
+    _ensureFilesystemRoot();
+    return File(p.join(_root, presetsFileName));
+  }
 
-  File monthlyLogFile(DateTime date) =>
-      File(p.join(foodLogsDirectory.path, '${monthKey(date)}.json'));
+  Directory get foodLogsDirectory {
+    _ensureFilesystemRoot();
+    return Directory(p.join(_root, 'logs', 'food'));
+  }
 
-  /// Opens the OS directory picker. Returns `null` when the user cancels.
-  ///
-  /// Android keeps using the legacy path API because the vault layer needs a
-  /// real filesystem path, while `pickDirectory` returns a `content://` tree
-  /// URI that `dart:io` cannot read. Other platforms use the URI API.
-  static Future<String?> pickVaultDirectory() async {
-    if (Platform.isAndroid) {
-      // ignore: deprecated_member_use
-      return FilePicker.getDirectoryPath(
-        dialogTitle: 'Choose your Personal Tracker vault',
+  File monthlyLogFile(DateTime date) {
+    _ensureFilesystemRoot();
+    return File(p.join(foodLogsDirectory.path, '${monthKey(date)}.json'));
+  }
+
+  void _ensureFilesystemRoot() {
+    if (!_isFilesystemRoot) {
+      throw StateError(
+        'File handles are unavailable for content URI vaults.',
       );
     }
-
-    final uri = await FilePicker.pickDirectory(
-      dialogTitle: 'Choose your Personal Tracker vault',
-    );
-    return uri?.toFilePath();
   }
+
+  /// Opens the OS directory picker. Returns `null` when the user cancels.
+  static Future<String?> pickVaultDirectory() =>
+      VaultAccess.pickVaultDirectory();
 
   /// The folder offered by the "Use Default Location" action.
   ///
@@ -99,14 +116,17 @@ class VaultService {
   /// from another device keeps all of its data. Vaults written by older
   /// versions (one JSON file per day) are migrated to monthly files here.
   Future<void> initialize(String path) async {
-    _rootPath = p.normalize(path);
-    await Directory(_root).create(recursive: true);
-    await foodLogsDirectory.create(recursive: true);
+    final store = await VaultAccess.openStore(path);
+    _store = store;
+    _rootPath = store.displayRoot;
 
-    if (!await configFile.exists()) {
+    await store.ensureDirectory(const []);
+    await store.ensureDirectory(const ['logs', 'food']);
+
+    if (!await store.fileExists(const [configFileName])) {
       await writeConfig(AppConfig.defaults());
     }
-    if (!await presetsFile.exists()) {
+    if (!await store.fileExists(const [presetsFileName])) {
       await writePresets(const <FoodPreset>[]);
     }
 
@@ -114,21 +134,21 @@ class VaultService {
   }
 
   Future<AppConfig> loadConfig() async {
-    final file = configFile;
-    if (!await file.exists()) {
+    final raw = await _vaultStore.readText(const [configFileName]);
+    if (raw == null) {
       final defaults = AppConfig.defaults();
       await writeConfig(defaults);
       return defaults;
     }
 
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      final decoded = jsonDecode(raw);
       if (decoded is! Map) {
         throw const FormatException('config.json must contain a JSON object.');
       }
       return AppConfig.fromJson(Map<String, dynamic>.from(decoded));
     } on FormatException {
-      await _quarantine(file);
+      await _quarantine(const [configFileName]);
       final defaults = AppConfig.defaults();
       await writeConfig(defaults);
       return defaults;
@@ -136,20 +156,21 @@ class VaultService {
   }
 
   Future<void> writeConfig(AppConfig config) {
-    final file = configFile;
     final json = config.toJson();
-    return _enqueueWrite(() => _writeJson(file, json));
+    return _enqueueWrite(
+      () => _writeJson(const [configFileName], json),
+    );
   }
 
   Future<List<FoodPreset>> loadPresets() async {
-    final file = presetsFile;
-    if (!await file.exists()) {
+    final raw = await _vaultStore.readText(const [presetsFileName]);
+    if (raw == null) {
       await writePresets(const <FoodPreset>[]);
       return [];
     }
 
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      final decoded = jsonDecode(raw);
       if (decoded is! List) {
         throw const FormatException(
           'food_presets.json must contain a JSON array.',
@@ -169,16 +190,17 @@ class VaultService {
       }
       return presets;
     } on FormatException {
-      await _quarantine(file);
+      await _quarantine(const [presetsFileName]);
       await writePresets(const <FoodPreset>[]);
       return [];
     }
   }
 
   Future<void> writePresets(List<FoodPreset> presets) {
-    final file = presetsFile;
     final json = presets.map((preset) => preset.toJson()).toList();
-    return _enqueueWrite(() => _writeJson(file, json));
+    return _enqueueWrite(
+      () => _writeJson(const [presetsFileName], json),
+    );
   }
 
   Future<DailyFoodLog> loadDailyLog(DateTime date) async {
@@ -187,27 +209,26 @@ class VaultService {
   }
 
   Future<void> writeDailyLog(DailyFoodLog log) {
-    final file = monthlyLogFile(log.date);
     return _enqueueWrite(() async {
-      final monthlyLog = await _readMonthlyLogFile(file, log.date);
+      final monthlyLog = await _readMonthlyLog(log.date);
       final updated = monthlyLog.withEntriesForDate(log.date, log.entries);
-      await _writeJson(file, updated.toJson());
+      await _writeJson(
+        ['logs', 'food', '${monthKey(log.date)}.json'],
+        updated.toJson(),
+      );
     });
   }
 
   /// Every day that currently has entries, sorted oldest to newest.
   Future<List<DateTime>> listLoggedDates() async {
-    final directory = foodLogsDirectory;
-    if (!await directory.exists()) return <DateTime>[];
-
+    final names = await _vaultStore.listFileNames(const ['logs', 'food']);
     final dates = <DateTime>{};
 
-    await for (final entity in directory.list(followLinks: false)) {
-      if (entity is! File) continue;
-      final name = p.basenameWithoutExtension(entity.path);
-      if (!_monthFilePattern.hasMatch(name)) continue;
+    for (final name in names) {
+      final monthName = p.basenameWithoutExtension(name);
+      if (!_monthFilePattern.hasMatch(monthName)) continue;
 
-      final month = DateTime.tryParse('$name-01');
+      final month = DateTime.tryParse('$monthName-01');
       if (month == null) continue;
 
       final monthlyLog = await _readMonthlyLog(month);
@@ -248,14 +269,13 @@ class VaultService {
     return entries;
   }
 
-  Future<MonthlyFoodLog> _readMonthlyLog(DateTime date) =>
-      _readMonthlyLogFile(monthlyLogFile(date), date);
-
-  Future<MonthlyFoodLog> _readMonthlyLogFile(File file, DateTime date) async {
-    if (!await file.exists()) return MonthlyFoodLog.empty(date);
+  Future<MonthlyFoodLog> _readMonthlyLog(DateTime date) async {
+    final segments = ['logs', 'food', '${monthKey(date)}.json'];
+    final raw = await _vaultStore.readText(segments);
+    if (raw == null) return MonthlyFoodLog.empty(date);
 
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      final decoded = jsonDecode(raw);
       if (decoded is! Map) {
         throw const FormatException(
           'A monthly food log must contain a JSON object.',
@@ -266,7 +286,7 @@ class VaultService {
         month: date,
       );
     } on FormatException {
-      await _quarantine(file);
+      await _quarantine(segments);
       return MonthlyFoodLog.empty(date);
     }
   }
@@ -277,27 +297,27 @@ class VaultService {
   /// the monthly document. Malformed files are quarantined like any other
   /// unreadable JSON file.
   Future<void> _migrateLegacyDailyLogs() async {
-    final directory = foodLogsDirectory;
-    if (!await directory.exists()) return;
-
-    final legacyFiles = <File>[];
-    await for (final entity in directory.list(followLinks: false)) {
-      if (entity is! File) continue;
-      final name = p.basenameWithoutExtension(entity.path);
-      if (_legacyDayFilePattern.hasMatch(name)) legacyFiles.add(entity);
-    }
-    if (legacyFiles.isEmpty) return;
+    final names = await _vaultStore.listFileNames(const ['logs', 'food']);
+    final legacyNames = names.where((name) {
+      final base = p.basenameWithoutExtension(name);
+      return _legacyDayFilePattern.hasMatch(base) && name.endsWith('.json');
+    }).toList();
+    if (legacyNames.isEmpty) return;
 
     final entriesByMonth = <String, List<FoodEntry>>{};
-    final migratedFiles = <File>[];
+    final migrated = <List<String>>[];
 
-    for (final file in legacyFiles) {
-      final name = p.basenameWithoutExtension(file.path);
-      final date = DateTime.tryParse(name);
+    for (final name in legacyNames) {
+      final base = p.basenameWithoutExtension(name);
+      final date = DateTime.tryParse(base);
       if (date == null) continue;
 
+      final segments = ['logs', 'food', name];
+      final raw = await _vaultStore.readText(segments);
+      if (raw == null) continue;
+
       try {
-        final decoded = jsonDecode(await file.readAsString());
+        final decoded = jsonDecode(raw);
         if (decoded is! Map) {
           throw const FormatException(
             'A daily food log must contain a JSON object.',
@@ -310,9 +330,9 @@ class VaultService {
         entriesByMonth
             .putIfAbsent(monthKey(date), () => <FoodEntry>[])
             .addAll(log.entries);
-        migratedFiles.add(file);
+        migrated.add(segments);
       } on FormatException {
-        await _quarantine(file);
+        await _quarantine(segments);
       }
     }
 
@@ -329,39 +349,37 @@ class VaultService {
       }
 
       await _writeJson(
-        monthlyLogFile(month),
+        ['logs', 'food', '${monthKey(month)}.json'],
         MonthlyFoodLog(month: month, entries: byId.values.toList()).toJson(),
       );
     }
 
-    for (final file in migratedFiles) {
+    for (final segments in migrated) {
       try {
-        await file.delete();
-      } on FileSystemException {
+        await _vaultStore.deleteFile(segments);
+      } catch (_) {
         // The entries are already safe in the monthly file. Leave the legacy
         // copy behind if the file cannot be removed.
       }
     }
   }
 
-  Future<void> _writeJson(File file, Object value) async {
-    await file.parent.create(recursive: true);
-
+  Future<void> _writeJson(List<String> segments, Object value) async {
     final encoded = '${const JsonEncoder.withIndent('  ').convert(value)}\n';
-    final temporaryFile = File('${file.path}.tmp');
-    await temporaryFile.writeAsString(encoded, flush: true);
-    await temporaryFile.rename(file.path);
+    await _vaultStore.writeTextAtomic(segments, encoded);
   }
 
   /// Moves unreadable JSON aside instead of silently overwriting user data.
-  Future<void> _quarantine(File file) async {
+  Future<void> _quarantine(List<String> segments) async {
     final timestamp = DateTime.now().toUtc().toIso8601String().replaceAll(
       RegExp(r'[:.]'),
       '-',
     );
+    final fileName = '${segments.last}.corrupt-$timestamp';
+    final target = [...segments.sublist(0, segments.length - 1), fileName];
     try {
-      await file.rename('${file.path}.corrupt-$timestamp');
-    } on FileSystemException {
+      await _vaultStore.renameFile(segments, target);
+    } catch (_) {
       return;
     }
   }

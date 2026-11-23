@@ -9,12 +9,14 @@ import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   late Directory tempDirectory;
   late VaultService vault;
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     tempDirectory = await Directory.systemTemp.createTemp(
       'junk_food_tracker_vault_',
     );

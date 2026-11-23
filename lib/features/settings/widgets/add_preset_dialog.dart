@@ -5,9 +5,14 @@ import 'package:junk_food_tracker/shared/utils/formatters.dart';
 import 'package:uuid/uuid.dart';
 
 class AddPresetDialog extends StatefulWidget {
-  const AddPresetDialog({super.key, required this.categories});
+  const AddPresetDialog({super.key, required this.categories, this.preset});
 
   final List<String> categories;
+
+  /// When provided, the dialog edits this pre-made food instead of adding one.
+  final FoodPreset? preset;
+
+  bool get isEditing => preset != null;
 
   @override
   State<AddPresetDialog> createState() => _AddPresetDialogState();
@@ -27,9 +32,24 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
   @override
   void initState() {
     super.initState();
-    _category = widget.categories.isNotEmpty
-        ? widget.categories.first
-        : 'Uncategorized';
+    final preset = widget.preset;
+    _category =
+        preset?.defaultCategory ??
+        (widget.categories.isNotEmpty
+            ? widget.categories.first
+            : 'Uncategorized');
+    if (preset == null) return;
+
+    _nameController.text = preset.name;
+    _caloriesController.text = preset.calories.toString();
+    _proteinController.text = _formatOptionalValue(preset.protein);
+    _fatsController.text = _formatOptionalValue(preset.fats);
+    _sugarController.text = _formatOptionalValue(preset.sugar);
+  }
+
+  static String _formatOptionalValue(num? value) {
+    if (value == null) return '';
+    return value == value.roundToDouble() ? value.toInt().toString() : '$value';
   }
 
   @override
@@ -56,7 +76,7 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
 
     Navigator.of(context).pop(
       FoodPreset(
-        id: _uuid.v4(),
+        id: widget.preset?.id ?? _uuid.v4(),
         name: _nameController.text.trim(),
         calories: calories,
         defaultCategory: _category,
@@ -73,7 +93,9 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
       ..sort();
 
     return AlertDialog(
-      title: const Text('New Pre-made Food'),
+      title: Text(
+        widget.isEditing ? 'Edit Pre-made Food' : 'New Pre-made Food',
+      ),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
@@ -166,7 +188,7 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
         FilledButton(
           key: const Key('add-preset-confirm'),
           onPressed: _submit,
-          child: const Text('Add'),
+          child: Text(widget.isEditing ? 'Save' : 'Add'),
         ),
       ],
     );
