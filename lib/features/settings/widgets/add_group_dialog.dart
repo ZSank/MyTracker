@@ -54,6 +54,14 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     _items = group?.items ?? const [];
     _nameController.text = group?.name ?? '';
     _selectedPreset = widget.presets.isEmpty ? null : widget.presets.first;
+    _fillFromSelectedPreset();
+  }
+
+  void _fillFromSelectedPreset() {
+    final preset = _selectedPreset;
+    if (preset == null) return;
+    _quantityController.text = formatQuantity(preset.quantity);
+    _unitController.text = preset.unit ?? '';
   }
 
   @override
@@ -88,6 +96,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
           presetId: preset.id,
           name: preset.name,
           quantity: quantity,
+          baseQuantity: preset.quantity,
           unit: unit.isEmpty ? null : unit,
           calories: preset.calories,
           protein: preset.protein,
@@ -95,8 +104,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
           sugar: preset.sugar,
         ),
       ];
-      _quantityController.text = '1';
-      _unitController.clear();
+      _fillFromSelectedPreset();
       _errorText = null;
     });
   }
@@ -223,6 +231,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                         _selectedPreset = widget.presets.firstWhere(
                           (preset) => preset.id == value,
                         );
+                        _fillFromSelectedPreset();
                         _errorText = null;
                       });
                     },
@@ -245,7 +254,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                           ],
                           textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(
-                            labelText: 'Quantity',
+                            labelText: 'Weight / quantity',
                             border: OutlineInputBorder(),
                           ),
                         ),
@@ -257,7 +266,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                           controller: _unitController,
                           textInputAction: TextInputAction.done,
                           decoration: const InputDecoration(
-                            labelText: 'Unit (optional)',
+                            labelText: 'Unit',
                             hintText: 'g, piece',
                             border: OutlineInputBorder(),
                           ),

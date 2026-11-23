@@ -368,6 +368,24 @@ class _EntryCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (entry.items.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      entry.items
+                          .map(
+                            (item) =>
+                                '${item.name} '
+                                '${formatQuantityWithUnit(item.quantity, item.unit)}',
+                          )
+                          .join(' · '),
+                      key: ValueKey('entry-items-${entry.id}'),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                   if (entry.comment?.trim().isNotEmpty ?? false) ...[
                     const SizedBox(height: 4),
                     Row(

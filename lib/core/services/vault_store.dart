@@ -42,8 +42,7 @@ class IoVaultStore implements VaultStore {
 
   Directory get _root => Directory(rootPath);
 
-  File _file(List<String> segments) =>
-      File(p.joinAll([rootPath, ...segments]));
+  File _file(List<String> segments) => File(p.joinAll([rootPath, ...segments]));
 
   Directory _directory(List<String> segments) =>
       Directory(p.joinAll([rootPath, ...segments]));
@@ -105,9 +104,7 @@ class IoVaultStore implements VaultStore {
   /// Probes whether the process can create and read files under this root.
   Future<void> assertWritable() async {
     await _root.create(recursive: true);
-    final probe = File(
-      p.join(rootPath, '.stride_tracker_write_probe'),
-    );
+    final probe = File(p.join(rootPath, '.stride_tracker_write_probe'));
     try {
       await probe.writeAsString('ok', flush: true);
       await probe.readAsString();
@@ -115,9 +112,8 @@ class IoVaultStore implements VaultStore {
     } on PathAccessException catch (error) {
       throw StateError(
         'Permission denied for "$rootPath". '
-        'On Android, pick the folder again so the app receives Storage Access '
-        'Framework permission. On macOS, re-select the folder in the picker '
-        'so the sandbox grant can be renewed.\n\n$error',
+        'Pick the folder again so the app receives storage permission.\n\n'
+        '$error',
       );
     } on FileSystemException catch (error) {
       if (error.osError?.errorCode == 13) {

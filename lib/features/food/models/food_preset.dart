@@ -1,22 +1,24 @@
 /// Whether a pre-made food is a single item or a group of other items.
 enum FoodPresetType { simple, group }
 
-/// One line inside a grouped pre-made food.
+/// One line inside a grouped pre-made food or a multi-item entry.
 ///
-/// The nutrition values are snapshots of the source preset's per-serving
-/// values, so the group keeps working if that preset is later edited or
-/// deleted. Totals are multiplied by [quantity].
+/// The nutrition values are snapshots of the source preset's values for
+/// [baseQuantity], so the group keeps working if that preset is later edited
+/// or deleted. Totals scale with [quantity].
 class FoodGroupItem {
   const FoodGroupItem({
     required this.presetId,
     required this.name,
     required this.quantity,
     required this.calories,
+    this.baseQuantity = 1,
     this.unit,
     this.protein,
     this.fats,
     this.sugar,
   }) : assert(quantity > 0, 'Quantity must be above zero.'),
+       assert(baseQuantity > 0, 'Base quantity must be above zero.'),
        assert(calories >= 0, 'Calories cannot be negative.');
 
   factory FoodGroupItem.fromJson(Map<String, dynamic> json) {
@@ -24,6 +26,7 @@ class FoodGroupItem {
     final name = json['name'];
     final quantity = json['quantity'];
     final calories = json['calories'];
+    final baseQuantity = json['baseQuantity'];
     final unit = json['unit'];
     final protein = json['protein'];
     final fats = json['fats'];
@@ -37,6 +40,13 @@ class FoodGroupItem {
     }
     if (quantity <= 0 || calories < 0) {
       throw const FormatException('Invalid food group item values.');
+    }
+    if (baseQuantity != null && baseQuantity is! num) {
+      throw const FormatException('Invalid food group item base quantity.');
+    }
+    final parsedBase = baseQuantity as num? ?? 1;
+    if (parsedBase <= 0) {
+      throw const FormatException('Invalid food group item base quantity.');
     }
     if (unit != null && unit is! String) {
       throw const FormatException('Invalid food group item unit.');
@@ -55,6 +65,7 @@ class FoodGroupItem {
       presetId: presetId,
       name: name,
       quantity: quantity,
+      baseQuantity: parsedBase,
       unit: unit as String?,
       calories: calories.toInt(),
       protein: protein as num?,
@@ -66,32 +77,55 @@ class FoodGroupItem {
   final String presetId;
   final String name;
 
-  /// How many servings of the source preset are in the group.
+  /// The amount eaten, expressed in [unit] when one is available.
   final num quantity;
+
+  /// The amount that [calories], [protein], [fats] and [sugar] describe.
+  ///
+  /// Older groups stored a serving count here, which is why the default is 1
+  /// and totals are unchanged for their JSON.
+  final num baseQuantity;
 
   /// Optional display label for the quantity, e.g. "g" or "ml".
   final String? unit;
 
-  /// Calories in one serving of the source preset.
+  /// Calories in [baseQuantity] of the source preset.
   final int calories;
 
   final num? protein;
   final num? fats;
   final num? sugar;
 
-  int get totalCalories => (calories * quantity).round();
+  num get _scale => quantity / baseQuantity;
 
-  num? get totalProtein => protein == null ? null : protein! * quantity;
+  int get totalCalories => (calories * _scale).round();
 
-  num? get totalFats => fats == null ? null : fats! * quantity;
+  num? get totalProtein => protein == null ? null : protein! * _scale;
 
-  num? get totalSugar => sugar == null ? null : sugar! * quantity;
+  num? get totalFats => fats == null ? null : fats! * _scale;
+
+  num? get totalSugar => sugar == null ? null : sugar! * _scale;
+
+  FoodGroupItem copyWith({num? quantity, num? baseQuantity, String? unit}) {
+    return FoodGroupItem(
+      presetId: presetId,
+      name: name,
+      quantity: quantity ?? this.quantity,
+      baseQuantity: baseQuantity ?? this.baseQuantity,
+      unit: unit ?? this.unit,
+      calories: calories,
+      protein: protein,
+      fats: fats,
+      sugar: sugar,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
       'presetId': presetId,
       'name': name,
       'quantity': quantity,
+      if (baseQuantity != 1) 'baseQuantity': baseQuantity,
       if (unit != null) 'unit': unit,
       'calories': calories,
       if (protein != null) 'protein': protein,
@@ -103,10 +137,10 @@ class FoodGroupItem {
 
 /// A reusable food item stored in `food_presets.json`.
 ///
-/// A [FoodPresetType.simple] preset stores its own per-serving nutrition. A
-/// [FoodPresetType.group] preset is built from other presets and exposes the
-/// sum of its [items] through the same getters, so the rest of the app can
-/// treat both kinds identically.
+/// A [FoodPresetType.simple] preset stores its own nutrition for [quantity]
+/// of [unit] (for example 40 g of oats). A [FoodPresetType.group] preset is
+/// built from other presets and exposes the sum of its [items] through the
+/// same getters, so the rest of the app can treat both kinds identically.
 class FoodPreset {
   const FoodPreset({
     required this.id,
@@ -114,11 +148,14 @@ class FoodPreset {
     required this.defaultCategory,
     this.type = FoodPresetType.simple,
     int calories = 0,
+    this.quantity = 1,
+    this.unit,
     num? protein,
     num? fats,
     num? sugar,
     this.items = const <FoodGroupItem>[],
-  }) : _storedCalories = calories,
+  }) : assert(quantity > 0, 'Quantity must be above zero.'),
+       _storedCalories = calories,
        _storedProtein = protein,
        _storedFats = fats,
        _storedSugar = sugar;
@@ -130,6 +167,8 @@ class FoodPreset {
     required this.defaultCategory,
     required this.items,
   }) : type = FoodPresetType.group,
+       quantity = 1,
+       unit = null,
        _storedCalories = 0,
        _storedProtein = null,
        _storedFats = null,
@@ -150,6 +189,19 @@ class FoodPreset {
       'group' => FoodPresetType.group,
       _ => throw FormatException('Invalid food preset type: $rawType'),
     };
+
+    final rawQuantity = json['quantity'];
+    final unit = json['unit'];
+    if (rawQuantity != null && rawQuantity is! num) {
+      throw const FormatException('Invalid food preset quantity.');
+    }
+    final quantity = rawQuantity as num? ?? 1;
+    if (quantity <= 0) {
+      throw const FormatException('Invalid food preset quantity.');
+    }
+    if (unit != null && unit is! String) {
+      throw const FormatException('Invalid food preset unit.');
+    }
 
     if (type == FoodPresetType.group) {
       final rawItems = json['items'];
@@ -198,6 +250,8 @@ class FoodPreset {
       name: name,
       calories: calories.toInt(),
       defaultCategory: category,
+      quantity: quantity,
+      unit: unit as String?,
       protein: protein as num?,
       fats: fats as num?,
       sugar: sugar as num?,
@@ -209,6 +263,12 @@ class FoodPreset {
   final String defaultCategory;
   final FoodPresetType type;
 
+  /// How much food the nutrition values describe, e.g. 40 with [unit] "g".
+  final num quantity;
+
+  /// Optional label for [quantity], e.g. "g", "ml" or "piece".
+  final String? unit;
+
   /// Present only for grouped presets.
   final List<FoodGroupItem> items;
 
@@ -219,20 +279,20 @@ class FoodPreset {
 
   bool get isGroup => type == FoodPresetType.group;
 
-  /// Per-serving calories (or the whole group's calories for groups).
+  /// Calories for [quantity] (or the whole group's calories for groups).
   int get calories => isGroup
       ? items.fold<int>(0, (total, item) => total + item.totalCalories)
       : _storedCalories;
 
-  /// Per-serving protein (or the whole group's protein for groups).
+  /// Protein for [quantity] (or the whole group's protein for groups).
   num? get protein =>
       isGroup ? _sumOptional((item) => item.totalProtein) : _storedProtein;
 
-  /// Per-serving fats (or the whole group's fats for groups).
+  /// Fats for [quantity] (or the whole group's fats for groups).
   num? get fats =>
       isGroup ? _sumOptional((item) => item.totalFats) : _storedFats;
 
-  /// Per-serving sugar (or the whole group's sugar for groups).
+  /// Sugar for [quantity] (or the whole group's sugar for groups).
   num? get sugar =>
       isGroup ? _sumOptional((item) => item.totalSugar) : _storedSugar;
 
@@ -255,6 +315,8 @@ class FoodPreset {
     int? calories,
     String? defaultCategory,
     FoodPresetType? type,
+    num? quantity,
+    String? unit,
     num? protein,
     num? fats,
     num? sugar,
@@ -266,6 +328,8 @@ class FoodPreset {
       calories: calories ?? _storedCalories,
       defaultCategory: defaultCategory ?? this.defaultCategory,
       type: type ?? this.type,
+      quantity: quantity ?? this.quantity,
+      unit: unit ?? this.unit,
       protein: protein ?? _storedProtein,
       fats: fats ?? _storedFats,
       sugar: sugar ?? _storedSugar,
@@ -290,6 +354,8 @@ class FoodPreset {
       'calories': _storedCalories,
       'defaultCategory': defaultCategory,
       'type': 'simple',
+      if (quantity != 1) 'quantity': quantity,
+      if (unit != null) 'unit': unit,
       if (_storedProtein != null) 'protein': _storedProtein,
       if (_storedFats != null) 'fats': _storedFats,
       if (_storedSugar != null) 'sugar': _storedSugar,

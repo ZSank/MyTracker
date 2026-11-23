@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:junk_food_tracker/core/models/app_config.dart';
-import 'package:junk_food_tracker/core/services/vault_access.dart';
 import 'package:junk_food_tracker/core/services/vault_service.dart';
 import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
@@ -62,6 +61,52 @@ class TrackerState extends ChangeNotifier {
   List<String> get junkFoodCategories => _config.junkFoodCategories;
 
   List<FoodPreset> get presets => List.unmodifiable(_presets);
+
+  /// Pre-made foods ordered by their latest use, newest first.
+  ///
+  /// Foods that have not been logged yet follow in their stored order, so the
+  /// add-entry sheet can still show quick picks on a fresh install. Callers
+  /// that need a shorter list (for example the top five chips) can take a
+  /// slice.
+  List<FoodPreset> get recentPresets {
+    if (_presets.isEmpty) return const <FoodPreset>[];
+
+    final presetIdByName = <String, String>{};
+    for (final preset in _presets) {
+      presetIdByName.putIfAbsent(preset.name.toLowerCase(), () => preset.id);
+    }
+
+    final lastUsed = <String, DateTime>{};
+    void mark(String? presetId, DateTime timestamp) {
+      if (presetId == null) return;
+      final current = lastUsed[presetId];
+      if (current == null || timestamp.isAfter(current)) {
+        lastUsed[presetId] = timestamp;
+      }
+    }
+
+    for (final entry in recentEntries) {
+      mark(entry.presetId, entry.timestamp);
+      for (final item in entry.items) {
+        mark(item.presetId, entry.timestamp);
+      }
+      // Entries saved before preset ids were stored still count as usage.
+      mark(presetIdByName[entry.foodName.toLowerCase()], entry.timestamp);
+    }
+
+    final used = <FoodPreset>[];
+    final unused = <FoodPreset>[];
+    for (final preset in _presets) {
+      if (lastUsed.containsKey(preset.id)) {
+        used.add(preset);
+      } else {
+        unused.add(preset);
+      }
+    }
+    used.sort((a, b) => lastUsed[b.id]!.compareTo(lastUsed[a.id]!));
+
+    return List.unmodifiable([...used, ...unused]);
+  }
 
   DailyFoodLog? get todayLog => _logs[dateKey(DateTime.now())];
 
@@ -173,12 +218,8 @@ class TrackerState extends ChangeNotifier {
   Future<void> chooseVaultFolder() =>
       _selectVault(VaultService.pickVaultDirectory);
 
-  Future<void> useDefaultVault() => _selectVault(() async {
-        // Default location lives inside the app sandbox / app-specific
-        // storage, so any previous user-folder bookmark must be cleared.
-        await VaultAccess.clearPersistedAccess();
-        return VaultService.defaultVaultPath();
-      });
+  Future<void> useDefaultVault() =>
+      _selectVault(() => VaultService.defaultVaultPath());
 
   Future<void> setVaultPath(String path) async {
     final trimmed = path.trim();

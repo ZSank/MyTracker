@@ -299,6 +299,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               category: preset.defaultCategory,
               isJunk: state.isJunkCategory(preset.defaultCategory),
             ),
+            if (!preset.isGroup &&
+                (preset.quantity != 1 ||
+                    (preset.unit?.trim().isNotEmpty ?? false)))
+              Text(
+                formatQuantityWithUnit(preset.quantity, preset.unit),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             Text(
               '${formatNumber(preset.calories)} kcal',
               style: theme.textTheme.bodySmall?.copyWith(

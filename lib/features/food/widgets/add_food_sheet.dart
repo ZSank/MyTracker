@@ -49,8 +49,11 @@ class AddFoodSheet extends StatefulWidget {
 
 class _AddFoodSheetState extends State<AddFoodSheet> {
   static const Uuid _uuid = Uuid();
+  static const int _recentPresetLimit = 5;
+  static const int _suggestionLimit = 6;
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final FocusNode _nameFocusNode = FocusNode();
   late final TextEditingController _nameController;
   late final TextEditingController _caloriesController;
   late final TextEditingController _quantityController;
@@ -61,11 +64,15 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   late final TextEditingController _commentController;
   late DateTime _timestamp;
   String? _category;
-  FoodPreset? _selectedPreset;
+  List<FoodGroupItem> _items = const <FoodGroupItem>[];
+  String? _selectedGroupId;
   bool _saveAsPreset = false;
   bool _saving = false;
+  bool _nameEdited = false;
 
   bool get _isEditing => widget.entry != null;
+
+  bool get _hasItems => _items.isNotEmpty;
 
   @override
   void initState() {
@@ -93,10 +100,29 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         ? state.foodCategories.first
         : 'Uncategorized';
     _category = entry?.category ?? fallbackCategory;
+
+    if (entry != null) {
+      _items = List<FoodGroupItem>.unmodifiable(entry.items);
+      _nameEdited = true;
+      final presetId = entry.presetId;
+      if (presetId != null) {
+        for (final preset in state.presets) {
+          if (preset.id == presetId && preset.isGroup) {
+            _selectedGroupId = preset.id;
+            break;
+          }
+        }
+      }
+      if (_items.isNotEmpty) _syncTotalsFromItems();
+    }
+
+    _nameFocusNode.addListener(_handleNameFocusChanged);
   }
 
   @override
   void dispose() {
+    _nameFocusNode.removeListener(_handleNameFocusChanged);
+    _nameFocusNode.dispose();
     _nameController.dispose();
     _caloriesController.dispose();
     _quantityController.dispose();
@@ -123,46 +149,171 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     return num.tryParse(text);
   }
 
-  void _fillNutrition(FoodPreset preset, num quantity) {
-    _caloriesController.text = (preset.calories * quantity).round().toString();
-    _proteinController.text = preset.protein == null
-        ? ''
-        : formatQuantity(preset.protein! * quantity);
-    _fatsController.text = preset.fats == null
-        ? ''
-        : formatQuantity(preset.fats! * quantity);
-    _sugarController.text = preset.sugar == null
-        ? ''
-        : formatQuantity(preset.sugar! * quantity);
+  void _handleNameFocusChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _applyPreset(FoodPreset preset) {
-    var quantity = _parsedQuantity(_quantityController.text) ?? 1;
-    if (quantity <= 0) quantity = 1;
+  int get _itemsCalories =>
+      _items.fold<int>(0, (total, item) => total + item.totalCalories);
 
+  num? _sumItemOptional(num? Function(FoodGroupItem item) read) {
+    var found = false;
+    num total = 0;
+    for (final item in _items) {
+      final value = read(item);
+      if (value != null) {
+        found = true;
+        total += value;
+      }
+    }
+    return found ? total : null;
+  }
+
+  void _syncTotalsFromItems() {
+    if (_items.isEmpty) return;
+    _caloriesController.text = _itemsCalories.toString();
+    _proteinController.text = _optionalText(
+      _sumItemOptional((item) => item.totalProtein),
+    );
+    _fatsController.text = _optionalText(
+      _sumItemOptional((item) => item.totalFats),
+    );
+    _sugarController.text = _optionalText(
+      _sumItemOptional((item) => item.totalSugar),
+    );
+  }
+
+  void _clearAutoTotals() {
+    _caloriesController.clear();
+    _proteinController.clear();
+    _fatsController.clear();
+    _sugarController.clear();
+  }
+
+  FoodGroupItem _itemFromPreset(FoodPreset preset) {
+    final base = preset.quantity > 0 ? preset.quantity : 1;
+    return FoodGroupItem(
+      presetId: preset.id,
+      name: preset.name,
+      quantity: base,
+      baseQuantity: base,
+      unit: preset.unit,
+      calories: preset.calories,
+      protein: preset.protein,
+      fats: preset.fats,
+      sugar: preset.sugar,
+    );
+  }
+
+  String _autoEntryName(TrackerState state) {
+    if (_selectedGroupId != null) {
+      for (final preset in state.presets) {
+        if (preset.id == _selectedGroupId) return preset.name;
+      }
+    }
+    if (_items.isEmpty) return '';
+    if (_items.length == 1) return _items.single.name;
+    return _items.map((item) => item.name).join(' + ');
+  }
+
+  void _refreshAutoName(TrackerState state) {
+    if (_nameEdited) return;
+    final next = _autoEntryName(state);
+    if (next.isEmpty) return;
+    if (_nameController.text != next) _nameController.text = next;
+  }
+
+  void _selectPreset(FoodPreset preset, {bool fromSuggestion = false}) {
+    final state = context.read<TrackerState>();
+
+    if (preset.isGroup) {
+      setState(() {
+        _selectedGroupId = preset.id;
+        _items = List<FoodGroupItem>.unmodifiable(preset.items);
+        _category = preset.defaultCategory;
+        if (fromSuggestion || !_nameEdited) {
+          _nameEdited = false;
+          _nameController.text = preset.name;
+        }
+        if (_items.isEmpty) {
+          _clearAutoTotals();
+        } else {
+          _syncTotalsFromItems();
+        }
+      });
+      return;
+    }
+
+    final isSelected = _items.any((item) => item.presetId == preset.id);
     setState(() {
-      _selectedPreset = preset;
-      _nameController.text = preset.name;
-      _category = preset.defaultCategory;
-      _saveAsPreset = false;
-      _quantityController.text = formatQuantity(quantity);
-      _fillNutrition(preset, quantity);
+      if (isSelected) {
+        _items = List<FoodGroupItem>.unmodifiable(
+          _items.where((item) => item.presetId != preset.id),
+        );
+        if (_items.isEmpty) {
+          _selectedGroupId = null;
+          _clearAutoTotals();
+        } else {
+          _syncTotalsFromItems();
+        }
+        _refreshAutoName(state);
+      } else {
+        final hadItems = _items.isNotEmpty;
+        _items = List<FoodGroupItem>.unmodifiable([
+          ..._items,
+          _itemFromPreset(preset),
+        ]);
+        if (!hadItems) _category = preset.defaultCategory;
+        if (fromSuggestion || !_nameEdited) {
+          _nameEdited = false;
+          _refreshAutoName(state);
+        }
+        _syncTotalsFromItems();
+      }
     });
   }
 
-  void _onQuantityChanged(String value) {
-    final preset = _selectedPreset;
-    if (preset == null) return;
-
-    final quantity = _parsedQuantity(value);
-    if (quantity == null || quantity <= 0) return;
-    _fillNutrition(preset, quantity);
+  void _updateItemQuantity(int index, num quantity) {
+    if (index < 0 || index >= _items.length) return;
+    final state = context.read<TrackerState>();
+    setState(() {
+      final next = [..._items];
+      next[index] = next[index].copyWith(quantity: quantity);
+      _items = List<FoodGroupItem>.unmodifiable(next);
+      _syncTotalsFromItems();
+      _refreshAutoName(state);
+    });
   }
 
-  void _clearPresetSelection() {
-    if (_selectedPreset != null) {
-      setState(() => _selectedPreset = null);
-    }
+  void _removeItem(int index) {
+    if (index < 0 || index >= _items.length) return;
+    final state = context.read<TrackerState>();
+    setState(() {
+      final next = [..._items]..removeAt(index);
+      _items = List<FoodGroupItem>.unmodifiable(next);
+      if (_items.isEmpty) {
+        _selectedGroupId = null;
+        _clearAutoTotals();
+      } else {
+        _syncTotalsFromItems();
+      }
+      _refreshAutoName(state);
+    });
+  }
+
+  Future<void> _openPresetPicker() async {
+    final state = context.read<TrackerState>();
+    if (state.presets.isEmpty) return;
+
+    final preset = await showModalBottomSheet<FoodPreset>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => _PresetPickerSheet(presets: state.recentPresets),
+    );
+    if (preset == null || !mounted) return;
+    _selectPreset(preset);
   }
 
   void _applyPeriod(_DayPeriod period) {
@@ -219,36 +370,114 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     setState(() => _timestamp = picked);
   }
 
+  List<FoodPreset> _suggestions(TrackerState state) {
+    final query = _nameController.text.trim().toLowerCase();
+    if (query.isEmpty || !_nameFocusNode.hasFocus) return const <FoodPreset>[];
+
+    return state.recentPresets
+        .where((preset) {
+          if (!preset.name.toLowerCase().contains(query)) return false;
+          if (preset.isGroup) return _selectedGroupId != preset.id;
+          return !_items.any((item) => item.presetId == preset.id);
+        })
+        .take(_suggestionLimit)
+        .toList(growable: false);
+  }
+
+  FoodPreset _presetFromEntry({
+    required String name,
+    required String category,
+    required int calories,
+    required num quantity,
+    required String? unit,
+    required num? protein,
+    required num? fats,
+    required num? sugar,
+  }) {
+    if (_items.isEmpty) {
+      return FoodPreset(
+        id: _uuid.v4(),
+        name: name,
+        calories: calories,
+        defaultCategory: category,
+        quantity: quantity,
+        unit: unit,
+        protein: protein,
+        fats: fats,
+        sugar: sugar,
+      );
+    }
+
+    if (_items.length == 1 && _selectedGroupId == null) {
+      final item = _items.single;
+      return FoodPreset(
+        id: _uuid.v4(),
+        name: name,
+        calories: item.calories,
+        defaultCategory: category,
+        quantity: item.baseQuantity,
+        unit: item.unit,
+        protein: item.protein,
+        fats: item.fats,
+        sugar: item.sugar,
+      );
+    }
+
+    return FoodPreset.group(
+      id: _uuid.v4(),
+      name: name,
+      defaultCategory: category,
+      items: List<FoodGroupItem>.unmodifiable(_items),
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
     final state = context.read<TrackerState>();
     final category = _category;
-    final calories = int.tryParse(_caloriesController.text.trim());
-    final quantity = _parsedQuantity(_quantityController.text);
-    if (category == null || calories == null || quantity == null) return;
+    if (category == null) return;
 
+    final name = _nameController.text.trim().isEmpty
+        ? _autoEntryName(state)
+        : _nameController.text.trim();
+    if (name.isEmpty) return;
+
+    final calories = _hasItems
+        ? _itemsCalories
+        : int.tryParse(_caloriesController.text.trim());
+    if (calories == null) return;
+
+    final quantity = _hasItems
+        ? 1
+        : (_parsedQuantity(_quantityController.text) ?? 1);
     final protein = _optionalValue(_proteinController);
     final fats = _optionalValue(_fatsController);
     final sugar = _optionalValue(_sugarController);
-    final unit = _unitController.text.trim();
+    final unit = _hasItems ? null : _unitController.text.trim();
     final comment = _commentController.text.trim();
 
     setState(() => _saving = true);
 
     try {
-      final name = _nameController.text.trim();
       final entry = FoodEntry(
         id: widget.entry?.id ?? _uuid.v4(),
         foodName: name,
         calories: calories,
         category: category,
         timestamp: _timestamp,
+        presetId: _hasItems
+            ? _selectedGroupId ??
+                  (_items.length == 1 ? _items.single.presetId : null)
+            : null,
+        items: _hasItems
+            ? List<FoodGroupItem>.unmodifiable(_items)
+            : const <FoodGroupItem>[],
         protein: protein,
         fats: fats,
         sugar: sugar,
         quantity: quantity,
-        unit: unit.isEmpty ? null : unit,
+        unit: unit == null || unit.isEmpty ? null : unit,
         comment: comment.isEmpty ? null : comment,
       );
 
@@ -263,14 +492,15 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
 
       if (_saveAsPreset) {
         await state.upsertPreset(
-          FoodPreset(
-            id: _uuid.v4(),
+          _presetFromEntry(
             name: name,
-            calories: (calories / quantity).round(),
-            defaultCategory: category,
-            protein: protein == null ? null : protein / quantity,
-            fats: fats == null ? null : fats / quantity,
-            sugar: sugar == null ? null : sugar / quantity,
+            category: category,
+            calories: calories,
+            quantity: quantity,
+            unit: unit == null || unit.isEmpty ? null : unit,
+            protein: protein,
+            fats: fats,
+            sugar: sugar,
           ),
         );
       }
@@ -297,7 +527,10 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     if (_category != null) categories.add(_category!);
     if (categories.isEmpty) categories.add('Uncategorized');
     final categoryList = categories.toList()..sort();
-    final selectedPreset = _selectedPreset;
+    final recentPresets = state.recentPresets
+        .take(_recentPresetLimit)
+        .toList(growable: false);
+    final suggestions = _suggestions(state);
 
     return PopScope(
       canPop: !_saving,
@@ -332,40 +565,51 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                if (state.presets.isNotEmpty) ...[
-                  Text(
-                    'Pre-made foods',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                if (recentPresets.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Recent pre-made foods',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        key: const Key('all-presets-button'),
+                        onPressed: _saving ? null : _openPresetPicker,
+                        icon: const Icon(Icons.search_rounded, size: 18),
+                        label: const Text('All'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
                   SizedBox(
                     height: 44,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
-                      itemCount: state.presets.length,
+                      itemCount: recentPresets.length,
                       separatorBuilder: (_, _) => const SizedBox(width: 8),
                       itemBuilder: (context, index) {
-                        final preset = state.presets[index];
+                        final preset = recentPresets[index];
                         return ChoiceChip(
-                          label: Text(
-                            '${preset.name} · '
-                            '${formatNumber(preset.calories)} kcal',
-                          ),
+                          key: Key('preset-chip-${preset.id}'),
+                          label: Text(_presetChipLabel(preset)),
                           avatar: Icon(
                             preset.isGroup
                                 ? Icons.lunch_dining_rounded
                                 : Icons.bolt_rounded,
                             size: 18,
                           ),
-                          selected: selectedPreset?.id == preset.id,
-                          onSelected: (_) => _applyPreset(preset),
+                          selected: _isPresetSelected(preset),
+                          onSelected: _saving
+                              ? null
+                              : (_) => _selectPreset(preset),
                         );
                       },
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                 ] else ...[
                   Text(
                     'No pre-made foods yet. Save this entry as one below '
@@ -374,15 +618,16 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                       color: colors.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                 ],
-                if (selectedPreset != null && selectedPreset.isGroup) ...[
-                  _GroupContentsCard(preset: selectedPreset),
+                if (_hasItems) ...[
+                  _buildItemsCard(theme, colors),
                   const SizedBox(height: 16),
                 ],
                 TextFormField(
                   key: const Key('food-name-field'),
                   controller: _nameController,
+                  focusNode: _nameFocusNode,
                   textCapitalization: TextCapitalization.sentences,
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
@@ -392,13 +637,57 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                     border: OutlineInputBorder(),
                   ),
                   validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
+                    if ((value == null || value.trim().isEmpty) && !_hasItems) {
                       return 'Enter a food name';
                     }
                     return null;
                   },
-                  onChanged: (_) => _clearPresetSelection(),
+                  onChanged: (_) => setState(() => _nameEdited = true),
                 ),
+                if (suggestions.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Material(
+                    key: const Key('name-suggestions'),
+                    color: colors.surfaceContainerHighest,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: colors.outlineVariant),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var index = 0; index < suggestions.length; index++)
+                          ListTile(
+                            dense: true,
+                            leading: Icon(
+                              suggestions[index].isGroup
+                                  ? Icons.lunch_dining_rounded
+                                  : Icons.bolt_rounded,
+                              size: 20,
+                            ),
+                            title: Text(
+                              suggestions[index].name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              _presetDetail(suggestions[index]),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: const Icon(Icons.add_rounded, size: 20),
+                            onTap: _saving
+                                ? null
+                                : () => _selectPreset(
+                                    suggestions[index],
+                                    fromSuggestion: true,
+                                  ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -407,24 +696,30 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                       child: TextFormField(
                         key: const Key('calories-field'),
                         controller: _caloriesController,
+                        enabled: !_hasItems,
                         keyboardType: TextInputType.number,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                         ],
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Calories',
                           suffixText: 'kcal',
-                          prefixIcon: Icon(Icons.local_fire_department_rounded),
-                          border: OutlineInputBorder(),
+                          helperText: _hasItems
+                              ? 'Calculated from foods above'
+                              : null,
+                          prefixIcon: const Icon(
+                            Icons.local_fire_department_rounded,
+                          ),
+                          border: const OutlineInputBorder(),
                         ),
                         validator: (value) {
+                          if (_hasItems) return null;
                           final parsed = int.tryParse(value?.trim() ?? '');
                           if (parsed == null) return 'Enter calories';
                           if (parsed < 0) return 'Cannot be negative';
                           return null;
                         },
-                        onChanged: (_) => _clearPresetSelection(),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -448,10 +743,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                             ),
                         ],
                         onChanged: (value) {
-                          setState(() {
-                            _category = value;
-                            _selectedPreset = null;
-                          });
+                          setState(() => _category = value);
                         },
                         validator: (value) =>
                             value == null ? 'Choose a category' : null,
@@ -459,54 +751,55 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        key: const Key('quantity-field'),
-                        controller: _quantityController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d*'),
+                if (!_hasItems) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          key: const Key('quantity-field'),
+                          controller: _quantityController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
                           ),
-                        ],
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Quantity',
-                          hintText: '1',
-                          prefixIcon: Icon(Icons.numbers_rounded),
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) {
-                          final parsed = _parsedQuantity(value);
-                          if (parsed == null) return 'Enter a quantity';
-                          if (parsed <= 0) return 'Must be above zero';
-                          return null;
-                        },
-                        onChanged: _onQuantityChanged,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        key: const Key('unit-field'),
-                        controller: _unitController,
-                        textCapitalization: TextCapitalization.none,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Unit (optional)',
-                          hintText: 'g, ml, piece',
-                          border: OutlineInputBorder(),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d*'),
+                            ),
+                          ],
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Weight / quantity',
+                            hintText: '1',
+                            prefixIcon: Icon(Icons.numbers_rounded),
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (value) {
+                            final parsed = _parsedQuantity(value);
+                            if (parsed == null) return 'Enter a quantity';
+                            if (parsed <= 0) return 'Must be above zero';
+                            return null;
+                          },
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          key: const Key('unit-field'),
+                          controller: _unitController,
+                          textCapitalization: TextCapitalization.none,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Unit (optional)',
+                            hintText: 'g, ml, piece',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Text(
                   'Nutrition per entry (optional)',
@@ -590,6 +883,100 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  bool _isPresetSelected(FoodPreset preset) {
+    if (preset.isGroup) return _selectedGroupId == preset.id;
+    return _items.any((item) => item.presetId == preset.id);
+  }
+
+  String _presetChipLabel(FoodPreset preset) {
+    final parts = <String>[preset.name];
+    if (preset.isGroup) {
+      parts.add('${preset.items.length} items');
+    } else if (preset.quantity != 1 ||
+        (preset.unit?.trim().isNotEmpty ?? false)) {
+      parts.add(formatQuantityWithUnit(preset.quantity, preset.unit));
+    }
+    parts.add('${formatNumber(preset.calories)} kcal');
+    return parts.join(' · ');
+  }
+
+  String _presetDetail(FoodPreset preset) {
+    final parts = <String>[];
+    if (preset.isGroup) {
+      parts.add('${preset.items.length} items');
+    } else if (preset.quantity != 1 ||
+        (preset.unit?.trim().isNotEmpty ?? false)) {
+      parts.add(formatQuantityWithUnit(preset.quantity, preset.unit));
+    }
+    parts.add('${formatNumber(preset.calories)} kcal');
+    return parts.join(' · ');
+  }
+
+  Widget _buildItemsCard(ThemeData theme, ColorScheme colors) {
+    final title = _selectedGroupId != null
+        ? 'Group contents · ${_items.length} items'
+        : 'Foods in this entry · ${_items.length}';
+
+    return Container(
+      key: const Key('selected-items-card'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _selectedGroupId != null
+                    ? Icons.lunch_dining_rounded
+                    : Icons.restaurant_menu_rounded,
+                size: 18,
+                color: colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                '${formatNumber(_itemsCalories)} kcal',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          for (var index = 0; index < _items.length; index++)
+            _EntryItemRow(
+              key: ValueKey('entry-item-${_items[index].presetId}-$index'),
+              item: _items[index],
+              onQuantityChanged: (quantity) =>
+                  _updateItemQuantity(index, quantity),
+              onRemove: _saving ? null : () => _removeItem(index),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const Key('add-more-foods-button'),
+              onPressed: _saving ? null : _openPresetPicker,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Add more food'),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -680,6 +1067,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       child: TextFormField(
         key: key,
         controller: controller,
+        enabled: !_hasItems,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         inputFormatters: [
           FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
@@ -691,77 +1079,238 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
           border: const OutlineInputBorder(),
         ),
         validator: optionalNumberValidator,
-        onChanged: (_) => _clearPresetSelection(),
       ),
     );
   }
 }
 
-class _GroupContentsCard extends StatelessWidget {
-  const _GroupContentsCard({required this.preset});
+/// One editable food row inside a multi-item entry.
+class _EntryItemRow extends StatefulWidget {
+  const _EntryItemRow({
+    super.key,
+    required this.item,
+    required this.onQuantityChanged,
+    this.onRemove,
+  });
 
-  final FoodPreset preset;
+  final FoodGroupItem item;
+  final ValueChanged<num> onQuantityChanged;
+  final VoidCallback? onRemove;
+
+  @override
+  State<_EntryItemRow> createState() => _EntryItemRowState();
+}
+
+class _EntryItemRowState extends State<_EntryItemRow> {
+  late final TextEditingController _quantityController;
+  final FocusNode _quantityFocusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _quantityController = TextEditingController(
+      text: formatQuantity(widget.item.quantity),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _EntryItemRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_quantityFocusNode.hasFocus &&
+        widget.item.quantity != oldWidget.item.quantity) {
+      _quantityController.text = formatQuantity(widget.item.quantity);
+    }
+  }
+
+  @override
+  void dispose() {
+    _quantityFocusNode.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  void _onQuantityChanged(String value) {
+    final parsed = num.tryParse(value.trim());
+    if (parsed == null || parsed <= 0) return;
+    widget.onQuantityChanged(parsed);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final item = widget.item;
+    final unitLabel = item.unit?.trim();
+    final suffix = unitLabel == null || unitLabel.isEmpty ? null : unitLabel;
 
-    return Container(
-      key: ValueKey('group-contents-${preset.id}'),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.lunch_dining_rounded,
-                size: 18,
-                color: colors.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Group contents · ${preset.items.length} items',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: colors.onSurfaceVariant,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          for (final item in preset.items)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${formatQuantityWithUnit(item.quantity, item.unit)}'
-                      ' · ${item.name}',
-                      style: theme.textTheme.bodySmall,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                const SizedBox(height: 2),
+                Text(
+                  '${formatNumber(item.totalCalories)} kcal',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${formatNumber(item.totalCalories)} kcal',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 124,
+            child: TextFormField(
+              controller: _quantityController,
+              focusNode: _quantityFocusNode,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+              ],
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: 'Weight / qty',
+                suffixText: suffix,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 10,
+                ),
+                border: const OutlineInputBorder(),
+              ),
+              validator: (value) {
+                final parsed = num.tryParse(value?.trim() ?? '');
+                if (parsed == null) return 'Required';
+                if (parsed <= 0) return 'Above 0';
+                return null;
+              },
+              onChanged: _onQuantityChanged,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove ${item.name}',
+            onPressed: widget.onRemove,
+            icon: const Icon(Icons.close_rounded, size: 20),
+          ),
         ],
       ),
     );
+  }
+}
+
+/// Searchable picker used by "All" and "Add more food".
+class _PresetPickerSheet extends StatefulWidget {
+  const _PresetPickerSheet({required this.presets});
+
+  final List<FoodPreset> presets;
+
+  @override
+  State<_PresetPickerSheet> createState() => _PresetPickerSheetState();
+}
+
+class _PresetPickerSheetState extends State<_PresetPickerSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final query = _query.trim().toLowerCase();
+    final matches = widget.presets
+        .where(
+          (preset) =>
+              query.isEmpty || preset.name.toLowerCase().contains(query),
+        )
+        .toList(growable: false);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.65,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: TextField(
+                key: const Key('preset-picker-search'),
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Search pre-made foods',
+                  prefixIcon: Icon(Icons.search_rounded),
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) => setState(() => _query = value),
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: matches.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No matching pre-made foods',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: matches.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final preset = matches[index];
+                        return ListTile(
+                          leading: Icon(
+                            preset.isGroup
+                                ? Icons.lunch_dining_rounded
+                                : Icons.bolt_rounded,
+                          ),
+                          title: Text(preset.name),
+                          subtitle: Text(_presetDetail(preset)),
+                          trailing: const Icon(Icons.add_rounded),
+                          onTap: () => Navigator.of(context).pop(preset),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _presetDetail(FoodPreset preset) {
+    final parts = <String>[];
+    if (preset.isGroup) {
+      parts.add('${preset.items.length} items');
+    } else if (preset.quantity != 1 ||
+        (preset.unit?.trim().isNotEmpty ?? false)) {
+      parts.add(formatQuantityWithUnit(preset.quantity, preset.unit));
+    }
+    parts.add('${formatNumber(preset.calories)} kcal');
+    return parts.join(' · ');
   }
 }

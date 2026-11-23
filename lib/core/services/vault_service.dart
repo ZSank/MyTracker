@@ -99,14 +99,12 @@ class VaultService {
 
   /// The folder offered by the "Use Default Location" action.
   ///
-  /// Android gets the app-specific external directory (visible via a file
-  /// manager). Other platforms use the user's Documents directory.
+  /// Uses the app-specific external directory (visible via a file manager)
+  /// and falls back to the app documents directory if it is unavailable.
   static Future<String> defaultVaultPath() async {
-    Directory? base;
-    if (Platform.isAndroid) {
-      base = await getExternalStorageDirectory();
-    }
-    base ??= await getApplicationDocumentsDirectory();
+    final base =
+        await getExternalStorageDirectory() ??
+        await getApplicationDocumentsDirectory();
     return p.join(base.path, vaultFolderName);
   }
 

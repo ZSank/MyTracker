@@ -1,4 +1,5 @@
 import 'package:junk_food_tracker/core/models/tracker_entry.dart';
+import 'package:junk_food_tracker/features/food/models/food_preset.dart';
 
 /// A single logged food item.
 ///
@@ -6,6 +7,10 @@ import 'package:junk_food_tracker/core/models/tracker_entry.dart';
 /// [calories] is the entry's total. [quantity] is the number of servings
 /// logged and [unit] is an optional label for what the quantity means
 /// (for example "g" or "ml"). [comment] is an optional free-form note.
+///
+/// An entry can also be a meal built from several pre-made foods. Those
+/// foods are stored in [items] with their own weights and calories. For such
+/// entries [foodName] is the meal name and [calories] is the sum of [items].
 class FoodEntry implements TrackerEntry {
   const FoodEntry({
     required this.id,
@@ -13,6 +18,8 @@ class FoodEntry implements TrackerEntry {
     required this.calories,
     required this.category,
     required this.timestamp,
+    this.presetId,
+    this.items = const <FoodGroupItem>[],
     this.protein,
     this.fats,
     this.sugar,
@@ -48,7 +55,12 @@ class FoodEntry implements TrackerEntry {
     final quantity = json['quantity'];
     final unit = json['unit'];
     final comment = json['comment'];
+    final presetId = json['presetId'];
+    final rawItems = json['items'];
 
+    if (presetId != null && presetId is! String) {
+      throw const FormatException('Invalid food entry preset id.');
+    }
     if (protein != null && protein is! num) {
       throw const FormatException('Invalid food entry protein field.');
     }
@@ -73,12 +85,26 @@ class FoodEntry implements TrackerEntry {
       throw const FormatException('Invalid food entry quantity.');
     }
 
+    final items = <FoodGroupItem>[];
+    if (rawItems is List) {
+      for (final rawItem in rawItems) {
+        if (rawItem is! Map) continue;
+        try {
+          items.add(FoodGroupItem.fromJson(Map<String, dynamic>.from(rawItem)));
+        } on FormatException {
+          // Keep the entry usable if one item is malformed.
+        }
+      }
+    }
+
     return FoodEntry(
       id: id,
       foodName: foodName,
       calories: calories.toInt(),
       category: category,
       timestamp: parsedTimestamp.toLocal(),
+      presetId: presetId as String?,
+      items: List.unmodifiable(items),
       protein: protein as num?,
       fats: fats as num?,
       sugar: sugar as num?,
@@ -94,6 +120,14 @@ class FoodEntry implements TrackerEntry {
   final String foodName;
   final int calories;
   final String category;
+
+  /// The pre-made food this entry came from, when it was a single selection.
+  final String? presetId;
+
+  /// Pre-made foods used to build this entry, in display order.
+  final List<FoodGroupItem> items;
+
+  bool get hasItems => items.isNotEmpty;
 
   /// Total protein in the entry, when known.
   final num? protein;
@@ -122,6 +156,8 @@ class FoodEntry implements TrackerEntry {
     int? calories,
     String? category,
     DateTime? timestamp,
+    String? presetId,
+    List<FoodGroupItem>? items,
     num? protein,
     num? fats,
     num? sugar,
@@ -135,6 +171,8 @@ class FoodEntry implements TrackerEntry {
       calories: calories ?? this.calories,
       category: category ?? this.category,
       timestamp: timestamp ?? this.timestamp,
+      presetId: presetId ?? this.presetId,
+      items: items ?? this.items,
       protein: protein ?? this.protein,
       fats: fats ?? this.fats,
       sugar: sugar ?? this.sugar,
@@ -152,6 +190,8 @@ class FoodEntry implements TrackerEntry {
       'calories': calories,
       'category': category,
       'timestamp': timestamp.toUtc().toIso8601String(),
+      if (presetId != null) 'presetId': presetId,
+      if (items.isNotEmpty) 'items': [for (final item in items) item.toJson()],
       if (protein != null) 'protein': protein,
       if (fats != null) 'fats': fats,
       if (sugar != null) 'sugar': sugar,

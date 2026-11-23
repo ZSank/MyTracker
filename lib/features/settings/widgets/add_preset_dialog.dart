@@ -24,6 +24,10 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _caloriesController = TextEditingController();
+  final TextEditingController _quantityController = TextEditingController(
+    text: '1',
+  );
+  final TextEditingController _unitController = TextEditingController();
   final TextEditingController _proteinController = TextEditingController();
   final TextEditingController _fatsController = TextEditingController();
   final TextEditingController _sugarController = TextEditingController();
@@ -42,6 +46,8 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
 
     _nameController.text = preset.name;
     _caloriesController.text = preset.calories.toString();
+    _quantityController.text = _formatOptionalValue(preset.quantity);
+    _unitController.text = preset.unit ?? '';
     _proteinController.text = _formatOptionalValue(preset.protein);
     _fatsController.text = _formatOptionalValue(preset.fats);
     _sugarController.text = _formatOptionalValue(preset.sugar);
@@ -56,6 +62,8 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
   void dispose() {
     _nameController.dispose();
     _caloriesController.dispose();
+    _quantityController.dispose();
+    _unitController.dispose();
     _proteinController.dispose();
     _fatsController.dispose();
     _sugarController.dispose();
@@ -73,13 +81,17 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
 
     final calories = int.tryParse(_caloriesController.text.trim());
     if (calories == null) return;
+    final quantity = _optionalValue(_quantityController) ?? 1;
 
+    final unit = _unitController.text.trim();
     Navigator.of(context).pop(
       FoodPreset(
         id: widget.preset?.id ?? _uuid.v4(),
         name: _nameController.text.trim(),
         calories: calories,
         defaultCategory: _category,
+        quantity: quantity,
+        unit: unit.isEmpty ? null : unit,
         protein: _optionalValue(_proteinController),
         fats: _optionalValue(_fatsController),
         sugar: _optionalValue(_sugarController),
@@ -136,6 +148,56 @@ class _AddPresetDialogState extends State<AddPresetDialog> {
                   if (parsed == null) return 'Enter calories';
                   return null;
                 },
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      key: const Key('preset-quantity-field'),
+                      controller: _quantityController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d*\.?\d*'),
+                        ),
+                      ],
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Weight / quantity',
+                        hintText: 'e.g. 40',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) {
+                        final text = value?.trim() ?? '';
+                        if (text.isEmpty) return null;
+                        final parsed = num.tryParse(text);
+                        if (parsed == null || parsed <= 0) {
+                          return 'Must be above zero';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      key: const Key('preset-unit-field'),
+                      controller: _unitController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Unit',
+                        hintText: 'g, ml, piece',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               Row(
