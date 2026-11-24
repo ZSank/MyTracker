@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:junk_food_tracker/core/services/calorie_reminder_service.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
 import 'package:junk_food_tracker/features/settings/widgets/add_group_dialog.dart';
@@ -44,6 +45,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
           const _SectionHeader(title: 'Daily Goal'),
           _buildGoalCard(state),
+          const SizedBox(height: 24),
+          const _SectionHeader(
+            title: 'Daily Reminder',
+            subtitle: 'Get a notification with the calories logged that day.',
+          ),
+          _buildReminderCard(state),
           const SizedBox(height: 24),
           const _SectionHeader(
             title: 'Food Categories',
@@ -142,6 +149,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         trailing: const Icon(Icons.edit_outlined),
         onTap: () => _editGoal(state.config.dailyCalorieGoal),
+      ),
+    );
+  }
+
+  Widget _buildReminderCard(TrackerState state) {
+    final config = state.config;
+    final timeLabel = TimeOfDay(
+      hour: config.dailyReminderHour,
+      minute: config.dailyReminderMinute,
+    ).format(context);
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          SwitchListTile(
+            key: const Key('daily-reminder-switch'),
+            secondary: Icon(
+              config.dailyReminderEnabled
+                  ? Icons.notifications_active_rounded
+                  : Icons.notifications_off_outlined,
+            ),
+            title: const Text('Daily calorie reminder'),
+            subtitle: Text(
+              config.dailyReminderEnabled
+                  ? "Today's total is sent at $timeLabel."
+                  : 'Off',
+            ),
+            value: config.dailyReminderEnabled,
+            onChanged: (value) => unawaited(_setReminderEnabled(state, value)),
+          ),
+          if (config.dailyReminderEnabled) ...[
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            ListTile(
+              key: const Key('daily-reminder-time-tile'),
+              leading: const Icon(Icons.schedule_rounded),
+              title: const Text('Reminder time'),
+              subtitle: Text(timeLabel),
+              trailing: const Icon(Icons.edit_outlined),
+              onTap: () => unawaited(_pickReminderTime(state)),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -374,6 +424,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (goal == null || !mounted) return;
     await state.setDailyCalorieGoal(goal);
+  }
+
+  Future<void> _setReminderEnabled(TrackerState state, bool enabled) async {
+    if (enabled) {
+      final allowed = await CalorieReminderService.instance.requestPermission();
+      if (!mounted) return;
+      if (!allowed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Notifications are blocked. Allow them for StrideTracker in '
+              'system settings to receive reminders.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
+    await state.setDailyReminderEnabled(enabled);
+  }
+
+  Future<void> _pickReminderTime(TrackerState state) async {
+    final config = state.config;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: config.dailyReminderHour,
+        minute: config.dailyReminderMinute,
+      ),
+      helpText: 'Daily reminder time',
+    );
+    if (picked == null || !mounted) return;
+    await state.setDailyReminderTime(picked.hour, picked.minute);
   }
 
   Future<void> _addCategory() async {

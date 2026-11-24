@@ -1,12 +1,14 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:junk_food_tracker/core/screens/vault_setup_screen.dart';
+import 'package:junk_food_tracker/core/services/calorie_reminder_service.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
 import 'package:junk_food_tracker/core/theme/app_theme.dart';
 import 'package:junk_food_tracker/features/food/screens/home_screen.dart';
 import 'package:provider/provider.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await CalorieReminderService.instance.initialize();
   runApp(const JunkFoodTrackerApp());
 }
 
@@ -21,7 +23,9 @@ class JunkFoodTrackerApp extends StatelessWidget {
     return ChangeNotifierProvider<TrackerState>(
       create: (_) {
         if (trackerState != null) return trackerState!;
-        return TrackerState()..init();
+        final state = TrackerState();
+        CalorieReminderService.instance.attach(state);
+        return state..init();
       },
       child: MaterialApp(
         title: 'StrideTracker',

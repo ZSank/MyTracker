@@ -9,6 +9,9 @@ class AppConfig {
     required List<String> junkFoodCategories,
     required List<String> foodCategories,
     required List<String> enabledModules,
+    this.dailyReminderEnabled = false,
+    this.dailyReminderHour = defaultReminderHour,
+    this.dailyReminderMinute = defaultReminderMinute,
   }) : junkFoodCategories = List.unmodifiable(junkFoodCategories),
        foodCategories = List.unmodifiable(foodCategories),
        enabledModules = List.unmodifiable(enabledModules);
@@ -33,6 +36,9 @@ class AppConfig {
     final defaults = AppConfig.defaults();
     final calorieGoal = json['dailyCalorieGoal'];
     final vaultVersion = json['vaultVersion'];
+    final reminderEnabled = json['dailyReminderEnabled'];
+    final reminderHour = json['dailyReminderHour'];
+    final reminderMinute = json['dailyReminderMinute'];
 
     return AppConfig(
       vaultVersion: vaultVersion is int ? vaultVersion : defaults.vaultVersion,
@@ -46,16 +52,37 @@ class AppConfig {
           _stringList(json['foodCategories']) ?? defaults.foodCategories,
       enabledModules:
           _stringList(json['enabledModules']) ?? defaults.enabledModules,
+      dailyReminderEnabled: reminderEnabled is bool
+          ? reminderEnabled
+          : defaults.dailyReminderEnabled,
+      dailyReminderHour: reminderHour is int && _isValidHour(reminderHour)
+          ? reminderHour
+          : defaults.dailyReminderHour,
+      dailyReminderMinute:
+          reminderMinute is int && _isValidMinute(reminderMinute)
+          ? reminderMinute
+          : defaults.dailyReminderMinute,
     );
   }
 
   static const int currentVaultVersion = 1;
+  static const int defaultReminderHour = 21;
+  static const int defaultReminderMinute = 0;
 
   final int vaultVersion;
   final int dailyCalorieGoal;
   final List<String> junkFoodCategories;
   final List<String> foodCategories;
   final List<String> enabledModules;
+
+  /// Whether the app posts a daily notification with the day's calorie total.
+  final bool dailyReminderEnabled;
+
+  /// Hour of the daily reminder (0-23).
+  final int dailyReminderHour;
+
+  /// Minute of the daily reminder (0-59).
+  final int dailyReminderMinute;
 
   bool isJunkCategory(String category) => junkFoodCategories.contains(category);
 
@@ -65,6 +92,9 @@ class AppConfig {
     List<String>? junkFoodCategories,
     List<String>? foodCategories,
     List<String>? enabledModules,
+    bool? dailyReminderEnabled,
+    int? dailyReminderHour,
+    int? dailyReminderMinute,
   }) {
     return AppConfig(
       vaultVersion: vaultVersion ?? this.vaultVersion,
@@ -72,6 +102,9 @@ class AppConfig {
       junkFoodCategories: junkFoodCategories ?? this.junkFoodCategories,
       foodCategories: foodCategories ?? this.foodCategories,
       enabledModules: enabledModules ?? this.enabledModules,
+      dailyReminderEnabled: dailyReminderEnabled ?? this.dailyReminderEnabled,
+      dailyReminderHour: dailyReminderHour ?? this.dailyReminderHour,
+      dailyReminderMinute: dailyReminderMinute ?? this.dailyReminderMinute,
     );
   }
 
@@ -82,8 +115,15 @@ class AppConfig {
       'junkFoodCategories': junkFoodCategories,
       'foodCategories': foodCategories,
       'enabledModules': enabledModules,
+      'dailyReminderEnabled': dailyReminderEnabled,
+      'dailyReminderHour': dailyReminderHour,
+      'dailyReminderMinute': dailyReminderMinute,
     };
   }
+
+  static bool _isValidHour(int hour) => hour >= 0 && hour <= 23;
+
+  static bool _isValidMinute(int minute) => minute >= 0 && minute <= 59;
 
   static List<String>? _stringList(Object? value) {
     if (value is! List) return null;

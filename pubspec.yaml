@@ -42,6 +42,11 @@ dependencies:
 
   material_ui: ^1.11.1
   saf: ^2.1.2
+
+  # Daily reminder notifications
+  flutter_local_notifications: ^23.0.4
+  timezone: ^0.11.2
+  flutter_timezone: ^5.1.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

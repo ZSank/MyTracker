@@ -303,6 +303,22 @@ class TrackerState extends ChangeNotifier {
     await updateConfig(_config.copyWith(dailyCalorieGoal: goal));
   }
 
+  Future<void> setDailyReminderEnabled(bool enabled) async {
+    if (enabled == _config.dailyReminderEnabled) return;
+    await updateConfig(_config.copyWith(dailyReminderEnabled: enabled));
+  }
+
+  Future<void> setDailyReminderTime(int hour, int minute) async {
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
+    if (hour == _config.dailyReminderHour &&
+        minute == _config.dailyReminderMinute) {
+      return;
+    }
+    await updateConfig(
+      _config.copyWith(dailyReminderHour: hour, dailyReminderMinute: minute),
+    );
+  }
+
   Future<bool> addFoodCategory(String category) async {
     final value = category.trim();
     final alreadyExists = _config.foodCategories.any(
