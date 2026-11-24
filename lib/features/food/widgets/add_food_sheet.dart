@@ -156,6 +156,8 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   int get _itemsCalories =>
       _items.fold<int>(0, (total, item) => total + item.totalCalories);
 
+  num? get _itemsProtein => _sumItemOptional((item) => item.totalProtein);
+
   num? _sumItemOptional(num? Function(FoodGroupItem item) read) {
     var found = false;
     num total = 0;
@@ -900,7 +902,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         (preset.unit?.trim().isNotEmpty ?? false)) {
       parts.add(formatQuantityWithUnit(preset.quantity, preset.unit));
     }
-    parts.add('${formatNumber(preset.calories)} kcal');
+    parts.add(formatCaloriesWithProtein(preset.calories, preset.protein));
     return parts.join(' · ');
   }
 
@@ -912,7 +914,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         (preset.unit?.trim().isNotEmpty ?? false)) {
       parts.add(formatQuantityWithUnit(preset.quantity, preset.unit));
     }
-    parts.add('${formatNumber(preset.calories)} kcal');
+    parts.add(formatCaloriesWithProtein(preset.calories, preset.protein));
     return parts.join(' · ');
   }
 
@@ -951,7 +953,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                 ),
               ),
               Text(
-                '${formatNumber(_itemsCalories)} kcal',
+                formatCaloriesWithProtein(_itemsCalories, _itemsProtein),
                 style: theme.textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -1162,7 +1164,10 @@ class _EntryItemRowState extends State<_EntryItemRow> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${formatNumber(item.totalCalories)} kcal',
+                  formatCaloriesWithProtein(
+                    item.totalCalories,
+                    item.totalProtein,
+                  ),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colors.onSurfaceVariant,
                   ),
@@ -1310,7 +1315,7 @@ class _PresetPickerSheetState extends State<_PresetPickerSheet> {
         (preset.unit?.trim().isNotEmpty ?? false)) {
       parts.add(formatQuantityWithUnit(preset.quantity, preset.unit));
     }
-    parts.add('${formatNumber(preset.calories)} kcal');
+    parts.add(formatCaloriesWithProtein(preset.calories, preset.protein));
     return parts.join(' · ');
   }
 }

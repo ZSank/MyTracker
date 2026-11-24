@@ -211,9 +211,13 @@ class CalorieReminderService {
 
       final total = _totalForDate(state, day);
       final goal = config.dailyCalorieGoal;
-      final body = goal > 0
-          ? '${formatNumber(total)} of ${formatNumber(goal)} kcal logged today.'
-          : '${formatNumber(total)} kcal logged today.';
+      final calories = goal > 0
+          ? '${formatNumber(total)} of ${formatNumber(goal)} kcal'
+          : '${formatNumber(total)} kcal';
+      final protein = formatProtein(state.totalProteinForDate(day));
+      final body = protein == null
+          ? '$calories logged today.'
+          : '$calories · $protein logged today.';
 
       await _plugin.zonedSchedule(
         id: _firstNotificationId + offset,

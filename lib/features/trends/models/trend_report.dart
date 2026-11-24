@@ -80,12 +80,22 @@ class TrendBucket {
     required this.date,
     this.totalCalories = 0,
     this.junkCalories = 0,
+    this.totalProtein,
+    this.junkProtein,
   }) : assert(totalCalories >= 0),
-       assert(junkCalories >= 0 && junkCalories <= totalCalories);
+       assert(junkCalories >= 0 && junkCalories <= totalCalories),
+       assert(totalProtein == null || totalProtein >= 0),
+       assert(junkProtein == null || junkProtein >= 0);
 
   final DateTime date;
   final int totalCalories;
   final int junkCalories;
+
+  /// Protein in this bucket, or null when no entry had a protein value.
+  final num? totalProtein;
+
+  /// Protein contributed by junk-category entries, when known.
+  final num? junkProtein;
 
   int get nonJunkCalories => totalCalories - junkCalories;
 }
@@ -106,6 +116,8 @@ class TrendReport {
     required this.elapsedDayCount,
     required this.peakBucket,
     required this.peakDay,
+    this.totalProtein,
+    this.totalJunkProtein,
   });
 
   factory TrendReport.fromEntries({
@@ -129,12 +141,17 @@ class TrendReport {
 
       entryCount++;
       final isJunk = isJunkCategory(entry.category);
+      final protein = entry.totalProtein;
       final key = dateKey(day);
       final dayTotals = dailyTotals[key] ??= _BucketTotals();
-      dayTotals.add(entry.calories, isJunk: isJunk);
+      dayTotals.add(entry.calories, protein, isJunk: isJunk);
 
       if (period.range == TrendRange.day) {
-        hourlyTotals[timestamp.hour].add(entry.calories, isJunk: isJunk);
+        hourlyTotals[timestamp.hour].add(
+          entry.calories,
+          protein,
+          isJunk: isJunk,
+        );
       }
     }
 
@@ -152,6 +169,8 @@ class TrendReport {
                 date: day,
                 totalCalories: totals.total,
                 junkCalories: totals.junk,
+                totalProtein: totals.protein,
+                junkProtein: totals.junkProtein,
               ),
       );
     }
@@ -168,16 +187,28 @@ class TrendReport {
               ),
               totalCalories: totals.total,
               junkCalories: totals.junk,
+              totalProtein: totals.protein,
+              junkProtein: totals.junkProtein,
             );
           })
         : dailyBuckets;
 
     var totalCalories = 0;
     var totalJunkCalories = 0;
+    num? totalProtein;
+    num? totalJunkProtein;
     var loggedDayCount = 0;
     for (final bucket in dailyBuckets) {
       totalCalories += bucket.totalCalories;
       totalJunkCalories += bucket.junkCalories;
+      final protein = bucket.totalProtein;
+      if (protein != null) {
+        totalProtein = (totalProtein ?? 0) + protein;
+      }
+      final junkProtein = bucket.junkProtein;
+      if (junkProtein != null) {
+        totalJunkProtein = (totalJunkProtein ?? 0) + junkProtein;
+      }
       if (bucket.totalCalories > 0) loggedDayCount++;
     }
 
@@ -192,6 +223,8 @@ class TrendReport {
       dailyBuckets: List.unmodifiable(dailyBuckets),
       totalCalories: totalCalories,
       totalJunkCalories: totalJunkCalories,
+      totalProtein: totalProtein,
+      totalJunkProtein: totalJunkProtein,
       entryCount: entryCount,
       loggedDayCount: loggedDayCount,
       elapsedDayCount: elapsedDayCount,
@@ -210,6 +243,13 @@ class TrendReport {
 
   final int totalCalories;
   final int totalJunkCalories;
+
+  /// Protein in the period, or null when no entry had a protein value.
+  final num? totalProtein;
+
+  /// Protein from junk-category entries, when known.
+  final num? totalJunkProtein;
+
   final int entryCount;
   final int loggedDayCount;
 
@@ -222,6 +262,13 @@ class TrendReport {
   int get dailyAverageCalories {
     if (elapsedDayCount == 0) return 0;
     return (totalCalories / elapsedDayCount).round();
+  }
+
+  /// Average protein per elapsed day, or null when no protein is known.
+  num? get dailyAverageProtein {
+    final protein = totalProtein;
+    if (protein == null || elapsedDayCount == 0) return null;
+    return protein / elapsedDayCount;
   }
 
   int get junkPercentage {
@@ -244,9 +291,17 @@ class TrendReport {
 class _BucketTotals {
   int total = 0;
   int junk = 0;
+  num? protein;
+  num? junkProtein;
 
-  void add(int calories, {required bool isJunk}) {
+  void add(int calories, num? proteinValue, {required bool isJunk}) {
     total += calories;
+    if (proteinValue != null) {
+      protein = (protein ?? 0) + proteinValue;
+      if (isJunk) {
+        junkProtein = (junkProtein ?? 0) + proteinValue;
+      }
+    }
     if (isJunk) junk += calories;
   }
 }

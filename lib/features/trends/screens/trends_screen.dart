@@ -243,6 +243,11 @@ class _TrendsScreenState extends State<TrendsScreen> {
             : report.dailyAverageCalories,
       ),
       unit: 'kcal',
+      protein: formatProtein(
+        _range == TrendRange.day
+            ? report.totalProtein
+            : report.dailyAverageProtein,
+      ),
       caption: _range == TrendRange.day
           ? entryLabel
           : report.elapsedDayCount == 1
@@ -254,6 +259,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
       label: 'Junk total',
       value: formatNumber(report.totalJunkCalories),
       unit: 'kcal',
+      protein: formatProtein(report.totalJunkProtein),
       valueColor: colors.error,
       caption: report.totalCalories == 0
           ? 'No calories logged'
@@ -264,6 +270,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
       label: peakLabel,
       value: peak == null ? '—' : formatNumber(peak.totalCalories),
       unit: peak == null ? '' : 'kcal',
+      protein: peak == null ? null : formatProtein(peak.totalProtein),
       caption: peak == null
           ? 'No entries'
           : _range == TrendRange.day
@@ -531,6 +538,7 @@ class _Metric {
     required this.label,
     required this.value,
     this.unit = '',
+    this.protein,
     this.caption = '',
     this.valueColor,
   });
@@ -538,6 +546,10 @@ class _Metric {
   final String label;
   final String value;
   final String unit;
+
+  /// Optional compact protein label, e.g. "30p".
+  final String? protein;
+
   final String caption;
   final Color? valueColor;
 }
@@ -585,6 +597,14 @@ class _MetricCard extends StatelessWidget {
                         text: ' ${metric.unit}',
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    if (metric.protein != null)
+                      TextSpan(
+                        text: ' · ${metric.protein}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                   ],

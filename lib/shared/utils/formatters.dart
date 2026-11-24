@@ -21,6 +21,17 @@ String formatQuantityWithUnit(num value, String? unit) {
   return '$quantity $label';
 }
 
+/// Compact protein label, e.g. "30p". Returns null when protein is unknown.
+String? formatProtein(num? protein) =>
+    protein == null ? null : '${formatQuantity(protein)}p';
+
+/// Calories followed by protein when known, e.g. "320 kcal · 12p".
+String formatCaloriesWithProtein(int calories, num? protein) {
+  final calorieLabel = '${formatNumber(calories)} kcal';
+  final proteinLabel = formatProtein(protein);
+  return proteinLabel == null ? calorieLabel : '$calorieLabel · $proteinLabel';
+}
+
 /// The quantity label shown for a logged entry.
 String formatEntryQuantity(FoodEntry entry) =>
     formatQuantityWithUnit(entry.quantity, entry.unit);

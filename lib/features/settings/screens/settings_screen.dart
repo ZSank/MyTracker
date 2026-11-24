@@ -359,7 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             Text(
-              '${formatNumber(preset.calories)} kcal',
+              formatCaloriesWithProtein(preset.calories, preset.protein),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

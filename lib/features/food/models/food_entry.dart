@@ -132,6 +132,26 @@ class FoodEntry implements TrackerEntry {
   /// Total protein in the entry, when known.
   final num? protein;
 
+  /// Protein for the whole entry, falling back to the sum of [items].
+  ///
+  /// Entries saved before multi-item meals stored the total in [protein];
+  /// those keep working unchanged.
+  num? get totalProtein {
+    if (protein != null) return protein;
+    if (items.isEmpty) return null;
+
+    var found = false;
+    num total = 0;
+    for (final item in items) {
+      final value = item.totalProtein;
+      if (value != null) {
+        found = true;
+        total += value;
+      }
+    }
+    return found ? total : null;
+  }
+
   /// Total fats in the entry, when known.
   final num? fats;
 

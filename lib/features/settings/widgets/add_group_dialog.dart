@@ -75,6 +75,19 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
   int get _totalCalories =>
       _items.fold<int>(0, (total, item) => total + item.totalCalories);
 
+  num? get _totalProtein {
+    var found = false;
+    num total = 0;
+    for (final item in _items) {
+      final value = item.totalProtein;
+      if (value != null) {
+        found = true;
+        total += value;
+      }
+    }
+    return found ? total : null;
+  }
+
   void _addItem() {
     final preset = _selectedPreset;
     if (preset == null) {
@@ -220,7 +233,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                           value: preset.id,
                           child: Text(
                             '${preset.name} · '
-                            '${formatNumber(preset.calories)} kcal',
+                            '${formatCaloriesWithProtein(preset.calories, preset.protein)}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -293,7 +306,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                       title: Text(_items[index].name),
                       subtitle: Text(
                         '${formatQuantityWithUnit(_items[index].quantity, _items[index].unit)}'
-                        ' · ${formatNumber(_items[index].totalCalories)} kcal',
+                        ' · ${formatCaloriesWithProtein(_items[index].totalCalories, _items[index].totalProtein)}',
                       ),
                       trailing: IconButton(
                         tooltip: 'Remove ${_items[index].name}',
@@ -305,7 +318,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      'Total · ${formatNumber(_totalCalories)} kcal',
+                      'Total · ${formatCaloriesWithProtein(_totalCalories, _totalProtein)}',
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),

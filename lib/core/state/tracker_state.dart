@@ -117,6 +117,23 @@ class TrackerState extends ChangeNotifier {
   int get todayJunkCalories =>
       todayLog?.junkCalories(_config.junkFoodCategories.toSet()) ?? 0;
 
+  /// Protein logged today, or null when no entry has a protein value.
+  num? get todayTotalProtein => totalProteinForDate(DateTime.now());
+
+  /// Protein logged on [date], or null when none of its entries have one.
+  num? totalProteinForDate(DateTime date) {
+    var found = false;
+    num total = 0;
+    for (final entry in entriesForDate(date)) {
+      final value = entry.totalProtein;
+      if (value != null) {
+        found = true;
+        total += value;
+      }
+    }
+    return found ? total : null;
+  }
+
   bool isJunkCategory(String category) => _config.isJunkCategory(category);
 
   /// Entries from the last [recentDays] days, newest first.

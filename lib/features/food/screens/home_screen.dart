@@ -116,6 +116,7 @@ class _SummaryCard extends StatelessWidget {
     final total = state.todayTotalCalories;
     final goal = state.config.dailyCalorieGoal;
     final junk = state.todayJunkCalories;
+    final protein = state.todayTotalProtein;
     final ratio = goal > 0 ? (total / goal).clamp(0.0, 1.0) : 0.0;
     final remaining = goal - total;
     final overGoal = remaining < 0;
@@ -195,6 +196,14 @@ class _SummaryCard extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+                if (protein != null)
+                  TextSpan(
+                    text: ' · ${formatProtein(protein)}',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: colors.onPrimaryContainer.withValues(alpha: 0.75),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -418,7 +427,7 @@ class _EntryCard extends StatelessWidget {
               ),
             ),
             trailing: Text(
-              '${formatNumber(entry.calories)} kcal',
+              formatCaloriesWithProtein(entry.calories, entry.totalProtein),
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),

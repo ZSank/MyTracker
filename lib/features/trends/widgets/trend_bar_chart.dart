@@ -51,12 +51,19 @@ class TrendBarChart extends StatelessWidget {
                   fitInsideVertically: true,
                   getTooltipItem: (group, groupIndex, rod, rodIndex) {
                     final bucket = buckets[group.x];
+                    final protein = formatProtein(bucket.totalProtein);
+                    final junkProtein = formatProtein(bucket.junkProtein);
+                    final proteinLine = protein == null
+                        ? ''
+                        : '\n$protein protein';
                     final junkLine = bucket.junkCalories > 0
                         ? '\n${formatNumber(bucket.junkCalories)} kcal junk'
+                              '${junkProtein == null ? '' : ' · $junkProtein'}'
                         : '';
                     return BarTooltipItem(
                       '${_tooltipTitle(bucket)}\n'
                       '${formatNumber(bucket.totalCalories)} kcal total'
+                      '$proteinLine'
                       '$junkLine',
                       theme.textTheme.bodySmall?.copyWith(
                             color: colors.onInverseSurface,
