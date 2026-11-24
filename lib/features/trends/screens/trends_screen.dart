@@ -2,9 +2,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
 import 'package:junk_food_tracker/core/utils/date_key.dart';
+import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/trends/models/trend_report.dart';
 import 'package:junk_food_tracker/features/trends/widgets/trend_bar_chart.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
+import 'package:junk_food_tracker/shared/widgets/category_chip.dart';
 import 'package:provider/provider.dart';
 
 class TrendsScreen extends StatefulWidget {
@@ -24,6 +26,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
   TrendRange _range = TrendRange.week;
   DateTime _anchor = DateTime.now();
   TrendReport? _report;
+  List<FoodEntry> _entries = const <FoodEntry>[];
   bool _loading = true;
   String? _error;
   int _loadToken = 0;
@@ -55,15 +58,18 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
     try {
       await state.ensureLogsLoaded(period.start, period.end);
+      final entries = [...state.entriesInRange(period.start, period.end)]
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
       final report = TrendReport.fromEntries(
         period: period,
-        entries: state.entriesInRange(period.start, period.end),
+        entries: entries,
         isJunkCategory: state.isJunkCategory,
       );
 
       if (!mounted || token != _loadToken) return;
       setState(() {
         _report = report;
+        _entries = entries;
         _loading = false;
       });
     } catch (error) {
@@ -84,6 +90,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
       _range = range;
       _anchor = anchor;
       _report = null;
+      _entries = const <FoodEntry>[];
       _error = null;
       _loading = true;
     });
@@ -95,6 +102,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
     setState(() {
       _anchor = _period.shift(steps).start;
       _report = null;
+      _entries = const <FoodEntry>[];
       _error = null;
       _loading = true;
     });
@@ -201,6 +209,14 @@ class _TrendsScreenState extends State<TrendsScreen> {
               ],
             ),
           ),
+          if (_report != null) ...[
+            const SizedBox(height: 20),
+            _MealsCard(
+              entries: _entries,
+              range: _range,
+              isJunkCategory: context.read<TrackerState>().isJunkCategory,
+            ),
+          ],
           const SizedBox(height: 20),
           Text(
             'Charts are built from the JSON logs in your vault. '
@@ -279,6 +295,248 @@ class _TrendsScreenState extends State<TrendsScreen> {
     );
 
     return [primary, junk, peakMetric];
+  }
+}
+
+class _MealsCard extends StatelessWidget {
+  const _MealsCard({
+    required this.entries,
+    required this.range,
+    required this.isJunkCategory,
+  });
+
+  final List<FoodEntry> entries;
+  final TrendRange range;
+  final bool Function(String category) isJunkCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
+    final grouped = <DateTime, List<FoodEntry>>{};
+    for (final entry in entries) {
+      final day = dateOnly(entry.timestamp);
+      (grouped[day] ??= <FoodEntry>[]).add(entry);
+    }
+    final days = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Meals',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  entries.length == 1 ? '1 entry' : '${entries.length} entries',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            if (entries.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Text(
+                  'No meals logged in this period.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              )
+            else
+              for (var index = 0; index < days.length; index++) ...[
+                if (index > 0) const Divider(height: 24),
+                if (range != TrendRange.day)
+                  _MealDayHeader(
+                    day: days[index],
+                    entries: grouped[days[index]]!,
+                  ),
+                for (final entry in grouped[days[index]]!)
+                  _MealTile(
+                    entry: entry,
+                    isJunk: isJunkCategory(entry.category),
+                  ),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MealDayHeader extends StatelessWidget {
+  const _MealDayHeader({required this.day, required this.entries});
+
+  final DateTime day;
+  final List<FoodEntry> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
+    var calories = 0;
+    var foundProtein = false;
+    num protein = 0;
+    for (final entry in entries) {
+      calories += entry.calories;
+      final value = entry.totalProtein;
+      if (value != null) {
+        foundProtein = true;
+        protein += value;
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              formatDayHeader(day),
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Text(
+            formatCaloriesWithProtein(calories, foundProtein ? protein : null),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MealTile extends StatelessWidget {
+  const _MealTile({required this.entry, required this.isJunk});
+
+  static final DateFormat _timeFormat = DateFormat.jm();
+
+  final FoodEntry entry;
+  final bool isJunk;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final hasQuantity =
+        entry.quantity != 1 || (entry.unit?.trim().isNotEmpty ?? false);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: isJunk ? colors.errorContainer : colors.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isJunk ? Icons.fastfood_rounded : Icons.restaurant_rounded,
+              size: 18,
+              color: isJunk
+                  ? colors.onErrorContainer
+                  : colors.onPrimaryContainer,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        entry.foodName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      formatCaloriesWithProtein(
+                        entry.calories,
+                        entry.totalProtein,
+                      ),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    CategoryChip(category: entry.category, isJunk: isJunk),
+                    Text(
+                      _timeFormat.format(entry.timestamp.toLocal()),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                    if (hasQuantity)
+                      Text(
+                        formatEntryQuantity(entry),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+                if (entry.items.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    entry.items
+                        .map(
+                          (item) =>
+                              '${item.name} '
+                              '${formatQuantityWithUnit(item.quantity, item.unit)}',
+                        )
+                        .join(' · '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
