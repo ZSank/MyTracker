@@ -19,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 /// PersonalTrackerVault/
 /// ├── config.json
 /// ├── food_presets.json
+/// ├── feature_requests.txt
 /// └── logs/
 ///     └── food/
 ///         └── YYYY-MM.json
@@ -34,6 +35,7 @@ class VaultService {
   static const String vaultFolderName = 'PersonalTrackerVault';
   static const String configFileName = 'config.json';
   static const String presetsFileName = 'food_presets.json';
+  static const String featureRequestsFileName = 'feature_requests.txt';
 
   static final RegExp _legacyDayFilePattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
   static final RegExp _monthFilePattern = RegExp(r'^\d{4}-\d{2}$');
@@ -87,9 +89,7 @@ class VaultService {
 
   void _ensureFilesystemRoot() {
     if (!_isFilesystemRoot) {
-      throw StateError(
-        'File handles are unavailable for content URI vaults.',
-      );
+      throw StateError('File handles are unavailable for content URI vaults.');
     }
   }
 
@@ -155,9 +155,7 @@ class VaultService {
 
   Future<void> writeConfig(AppConfig config) {
     final json = config.toJson();
-    return _enqueueWrite(
-      () => _writeJson(const [configFileName], json),
-    );
+    return _enqueueWrite(() => _writeJson(const [configFileName], json));
   }
 
   Future<List<FoodPreset>> loadPresets() async {
@@ -196,8 +194,21 @@ class VaultService {
 
   Future<void> writePresets(List<FoodPreset> presets) {
     final json = presets.map((preset) => preset.toJson()).toList();
+    return _enqueueWrite(() => _writeJson(const [presetsFileName], json));
+  }
+
+  /// Reads the free-form feature request notes stored in the vault root.
+  Future<String> loadFeatureRequests() async {
+    final raw = await _vaultStore.readText(const [featureRequestsFileName]);
+    return raw ?? '';
+  }
+
+  /// Writes the feature request notes as plain text in the vault root.
+  Future<void> writeFeatureRequests(String contents) {
     return _enqueueWrite(
-      () => _writeJson(const [presetsFileName], json),
+      () => _vaultStore.writeTextAtomic(const [
+        featureRequestsFileName,
+      ], contents),
     );
   }
 
@@ -210,10 +221,11 @@ class VaultService {
     return _enqueueWrite(() async {
       final monthlyLog = await _readMonthlyLog(log.date);
       final updated = monthlyLog.withEntriesForDate(log.date, log.entries);
-      await _writeJson(
-        ['logs', 'food', '${monthKey(log.date)}.json'],
-        updated.toJson(),
-      );
+      await _writeJson([
+        'logs',
+        'food',
+        '${monthKey(log.date)}.json',
+      ], updated.toJson());
     });
   }
 
@@ -346,10 +358,11 @@ class VaultService {
         byId[entry.id] = entry;
       }
 
-      await _writeJson(
-        ['logs', 'food', '${monthKey(month)}.json'],
-        MonthlyFoodLog(month: month, entries: byId.values.toList()).toJson(),
-      );
+      await _writeJson([
+        'logs',
+        'food',
+        '${monthKey(month)}.json',
+      ], MonthlyFoodLog(month: month, entries: byId.values.toList()).toJson());
     }
 
     for (final segments in migrated) {

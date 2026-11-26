@@ -5,6 +5,7 @@ import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
+import 'package:junk_food_tracker/shared/utils/json_clipboard.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -557,6 +558,20 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                         ),
                       ),
                     ),
+                    if (_isEditing)
+                      IconButton(
+                        key: const Key('copy-editing-entry-json'),
+                        tooltip: 'Copy JSON',
+                        onPressed: _saving
+                            ? null
+                            : () => copyJsonToClipboard(
+                                context,
+                                widget.entry!.toExportJson(),
+                                message:
+                                    'Copied ${widget.entry!.foodName} as JSON.',
+                              ),
+                        icon: const Icon(Icons.copy_rounded),
+                      ),
                     IconButton(
                       tooltip: 'Close',
                       onPressed: _saving

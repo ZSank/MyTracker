@@ -5,6 +5,7 @@ import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
+import 'package:junk_food_tracker/features/food/models/weekly_average.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum VaultStatus { initializing, needsVaultSetup, ready, error }
@@ -132,6 +133,54 @@ class TrackerState extends ChangeNotifier {
       }
     }
     return found ? total : null;
+  }
+
+  /// Average intake across the logged days of the current Monday-start week.
+  ///
+  /// Today is included when it already has entries, so the average updates as
+  /// the day is logged. Days without entries are skipped rather than counted
+  /// as zero, which keeps a missed log from pulling the average down.
+  WeeklyAverage get currentWeekAverage {
+    final today = dateOnly(DateTime.now());
+    final weekStart = DateTime(
+      today.year,
+      today.month,
+      today.day - (today.weekday - DateTime.monday),
+    );
+
+    var totalCalories = 0;
+    var foundProtein = false;
+    num totalProtein = 0;
+    var loggedDays = 0;
+
+    for (
+      var day = weekStart;
+      !day.isAfter(today);
+      day = DateTime(day.year, day.month, day.day + 1)
+    ) {
+      final entries = _logs[dateKey(day)]?.entries;
+      if (entries == null || entries.isEmpty) continue;
+
+      loggedDays++;
+      for (final entry in entries) {
+        totalCalories += entry.calories;
+        final protein = entry.totalProtein;
+        if (protein != null) {
+          foundProtein = true;
+          totalProtein += protein;
+        }
+      }
+    }
+
+    if (loggedDays == 0) {
+      return const WeeklyAverage(calories: 0, protein: null, loggedDays: 0);
+    }
+
+    return WeeklyAverage(
+      calories: (totalCalories / loggedDays).round(),
+      protein: foundProtein ? totalProtein / loggedDays : null,
+      loggedDays: loggedDays,
+    );
   }
 
   bool isJunkCategory(String category) => _config.isJunkCategory(category);
@@ -403,6 +452,16 @@ class TrackerState extends ChangeNotifier {
     _presets = List.unmodifiable(_presets.where((preset) => preset.id != id));
     _notify();
     await _persist(() => _vault.writePresets(_presets));
+  }
+
+  /// Reads the feature request notes from the vault.
+  Future<String> loadFeatureRequests() => _vault.loadFeatureRequests();
+
+  /// Saves the feature request notes to the vault.
+  Future<void> saveFeatureRequests(String contents) async {
+    await _persist(() => _vault.writeFeatureRequests(contents));
+    final error = _lastWriteError;
+    if (error != null) throw StateError(error);
   }
 
   /// Loads a historical day into the in-memory cache. No-op when cached.

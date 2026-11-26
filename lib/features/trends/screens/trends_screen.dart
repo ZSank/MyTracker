@@ -6,6 +6,7 @@ import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/trends/models/trend_report.dart';
 import 'package:junk_food_tracker/features/trends/widgets/trend_bar_chart.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
+import 'package:junk_food_tracker/shared/utils/json_clipboard.dart';
 import 'package:junk_food_tracker/shared/widgets/category_chip.dart';
 import 'package:provider/provider.dart';
 
@@ -109,6 +110,16 @@ class _TrendsScreenState extends State<TrendsScreen> {
     _load();
   }
 
+  void _copyReport() {
+    final report = _report;
+    if (report == null) return;
+
+    copyJsonToClipboard(context, {
+      'exportedAt': DateTime.now().toUtc().toIso8601String(),
+      ...report.toJson(entries: _entries),
+    }, message: 'Copied $_periodTitle trends as JSON.');
+  }
+
   String get _periodTitle {
     final period = _period;
     final today = dateOnly(DateTime.now());
@@ -138,7 +149,17 @@ class _TrendsScreenState extends State<TrendsScreen> {
     final metrics = _metrics(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Trends & Analytics')),
+      appBar: AppBar(
+        title: const Text('Trends & Analytics'),
+        actions: [
+          IconButton(
+            key: const Key('export-trends-json'),
+            tooltip: 'Export JSON',
+            onPressed: _report == null ? null : _copyReport,
+            icon: const Icon(Icons.copy_all_rounded),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [

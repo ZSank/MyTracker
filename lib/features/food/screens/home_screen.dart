@@ -117,6 +117,7 @@ class _SummaryCard extends StatelessWidget {
     final goal = state.config.dailyCalorieGoal;
     final junk = state.todayJunkCalories;
     final protein = state.todayTotalProtein;
+    final weekAverage = state.currentWeekAverage;
     final ratio = goal > 0 ? (total / goal).clamp(0.0, 1.0) : 0.0;
     final remaining = goal - total;
     final overGoal = remaining < 0;
@@ -230,6 +231,40 @@ class _SummaryCard extends StatelessWidget {
                   : colors.onPrimaryContainer.withValues(alpha: 0.8),
               fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(
+                Icons.insights_rounded,
+                size: 15,
+                color: colors.onPrimaryContainer.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  weekAverage.hasData
+                      ? 'Week avg · '
+                            '${formatCaloriesWithProtein(weekAverage.calories, weekAverage.protein)}'
+                      : 'Week avg · no logged days yet',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onPrimaryContainer.withValues(alpha: 0.8),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (weekAverage.hasData)
+                Text(
+                  weekAverage.loggedDays == 1
+                      ? '1 logged day'
+                      : '${weekAverage.loggedDays} logged days',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onPrimaryContainer.withValues(alpha: 0.65),
+                  ),
+                ),
+            ],
           ),
         ],
       ),

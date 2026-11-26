@@ -98,6 +98,17 @@ class TrendBucket {
   final num? junkProtein;
 
   int get nonJunkCalories => totalCalories - junkCalories;
+
+  /// Compact JSON shape used by the Trends export action.
+  Map<String, dynamic> toJson() {
+    return {
+      'timestamp': date.toUtc().toIso8601String(),
+      'totalCalories': totalCalories,
+      'junkCalories': junkCalories,
+      if (totalProtein != null) 'totalProtein': totalProtein,
+      if (junkProtein != null) 'junkProtein': junkProtein,
+    };
+  }
 }
 
 /// Aggregated calories for one [TrendPeriod].
@@ -274,6 +285,40 @@ class TrendReport {
   int get junkPercentage {
     if (totalCalories == 0) return 0;
     return ((totalJunkCalories / totalCalories) * 100).round();
+  }
+
+  /// Everything the Trends screen shows for this period as a JSON-ready map.
+  ///
+  /// Pass the same entries that built the report to include the meal list.
+  /// Values come from memory, so exporting never re-reads the vault.
+  Map<String, dynamic> toJson({Iterable<FoodEntry>? entries}) {
+    return {
+      'range': period.range.name,
+      'period': {
+        'start': dateKey(period.start),
+        'end': dateKey(period.end),
+        'dayCount': period.dayCount,
+      },
+      'summary': {
+        'totalCalories': totalCalories,
+        'totalJunkCalories': totalJunkCalories,
+        if (totalProtein != null) 'totalProtein': totalProtein,
+        if (totalJunkProtein != null) 'totalJunkProtein': totalJunkProtein,
+        'dailyAverageCalories': dailyAverageCalories,
+        if (dailyAverageProtein != null)
+          'dailyAverageProtein': dailyAverageProtein,
+        'junkPercentage': junkPercentage,
+        'entryCount': entryCount,
+        'loggedDayCount': loggedDayCount,
+        'elapsedDayCount': elapsedDayCount,
+      },
+      'buckets': [for (final bucket in buckets) bucket.toJson()],
+      'dailyBuckets': [for (final bucket in dailyBuckets) bucket.toJson()],
+      if (peakBucket != null) 'peakBucket': peakBucket!.toJson(),
+      if (peakDay != null) 'peakDay': peakDay!.toJson(),
+      if (entries != null)
+        'meals': [for (final entry in entries) entry.toExportJson()],
+    };
   }
 
   static TrendBucket? _peak(Iterable<TrendBucket> buckets) {

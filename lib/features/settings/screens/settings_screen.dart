@@ -4,11 +4,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:junk_food_tracker/core/services/calorie_reminder_service.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
-import 'package:junk_food_tracker/features/food/models/food_preset.dart';
-import 'package:junk_food_tracker/features/settings/widgets/add_group_dialog.dart';
-import 'package:junk_food_tracker/features/settings/widgets/add_preset_dialog.dart';
+import 'package:junk_food_tracker/features/settings/screens/feature_requests_screen.dart';
+import 'package:junk_food_tracker/features/settings/screens/presets_screen.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
-import 'package:junk_food_tracker/shared/widgets/category_chip.dart';
 import 'package:provider/provider.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -62,7 +60,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Pre-made Foods',
             subtitle: 'Quick picks shown when adding an entry.',
           ),
-          _buildPresetsCard(state),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+              key: const Key('open-presets-button'),
+              leading: Icon(
+                Icons.bookmark_border_rounded,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: const Text('Pre-made foods and groups'),
+              subtitle: Text(
+                state.presets.isEmpty
+                    ? 'No pre-made foods yet.'
+                    : '${state.presets.where((preset) => !preset.isGroup).length} '
+                          'foods · '
+                          '${state.presets.where((preset) => preset.isGroup).length} '
+                          'groups',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const PresetsScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+          const _SectionHeader(
+            title: 'Feature Requests',
+            subtitle:
+                'Write down features you want to add. Saved in your vault.',
+          ),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+              key: const Key('open-feature-requests-button'),
+              leading: Icon(
+                Icons.lightbulb_outline_rounded,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: const Text('Feature request notes'),
+              subtitle: const Text(
+                'Open feature_requests.txt from your vault folder.',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const FeatureRequestsScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -280,121 +332,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildPresetsCard(TrackerState state) {
-    final presets = state.presets;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          if (presets.isEmpty)
-            const ListTile(
-              leading: Icon(Icons.bookmark_border_rounded),
-              title: Text('No pre-made foods yet'),
-              subtitle: Text('Add one here or save one while logging a food.'),
-            )
-          else
-            for (var index = 0; index < presets.length; index++) ...[
-              if (index > 0)
-                const Divider(height: 1, indent: 16, endIndent: 16),
-              _buildPresetTile(state, presets[index]),
-            ],
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                OutlinedButton.icon(
-                  key: const Key('add-preset-button'),
-                  onPressed: () => _addPreset(state),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Add Pre-made Food'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: const Key('add-group-button'),
-                  onPressed: () => _addGroup(state),
-                  icon: const Icon(Icons.lunch_dining_rounded),
-                  label: const Text('Add Pre-made Food Group'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPresetTile(TrackerState state, FoodPreset preset) {
-    final theme = Theme.of(context);
-
-    return ListTile(
-      contentPadding: const EdgeInsets.only(left: 16, right: 4),
-      leading: preset.isGroup ? const Icon(Icons.lunch_dining_rounded) : null,
-      title: Text(preset.name),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            CategoryChip(
-              category: preset.defaultCategory,
-              isJunk: state.isJunkCategory(preset.defaultCategory),
-            ),
-            if (!preset.isGroup &&
-                (preset.quantity != 1 ||
-                    (preset.unit?.trim().isNotEmpty ?? false)))
-              Text(
-                formatQuantityWithUnit(preset.quantity, preset.unit),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            Text(
-              formatCaloriesWithProtein(preset.calories, preset.protein),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (preset.isGroup)
-              Text(
-                '${preset.items.length} items',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-          ],
-        ),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            key: Key('edit-preset-${preset.id}'),
-            tooltip: 'Edit pre-made food',
-            onPressed: () => _editPreset(state, preset),
-            icon: const Icon(Icons.edit_outlined),
-          ),
-          IconButton(
-            tooltip: 'Delete pre-made food',
-            color: theme.colorScheme.error,
-            onPressed: () => _deletePreset(preset),
-            icon: const Icon(Icons.delete_outline_rounded),
-          ),
-        ],
-      ),
-      onTap: () => _editPreset(state, preset),
-    );
-  }
-
   Future<void> _changeVault() async {
     final state = context.read<TrackerState>();
     final previousPath = state.vaultPath;
@@ -509,80 +446,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SnackBar(content: Text('Keep at least one food category.')),
       );
     }
-  }
-
-  Future<void> _addPreset(TrackerState state) async {
-    final preset = await showDialog<FoodPreset>(
-      context: context,
-      builder: (_) => AddPresetDialog(categories: state.foodCategories),
-    );
-    if (preset == null || !mounted) return;
-    await state.upsertPreset(preset);
-  }
-
-  Future<void> _addGroup(TrackerState state) async {
-    final simplePresets = state.presets
-        .where((preset) => !preset.isGroup)
-        .toList();
-
-    if (simplePresets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Add a pre-made food first, then combine them into a group.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final group = await showDialog<FoodPreset>(
-      context: context,
-      builder: (_) => AddGroupDialog(
-        categories: state.foodCategories,
-        presets: simplePresets,
-      ),
-    );
-    if (group == null || !mounted) return;
-    await state.upsertPreset(group);
-  }
-
-  Future<void> _editPreset(TrackerState state, FoodPreset preset) async {
-    final updated = await showDialog<FoodPreset>(
-      context: context,
-      builder: (_) => preset.isGroup
-          ? AddGroupDialog(
-              categories: state.foodCategories,
-              presets: state.presets.where((item) => !item.isGroup).toList(),
-              group: preset,
-            )
-          : AddPresetDialog(categories: state.foodCategories, preset: preset),
-    );
-    if (updated == null || !mounted) return;
-    await state.upsertPreset(updated);
-  }
-
-  Future<void> _deletePreset(FoodPreset preset) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete pre-made food?'),
-        content: Text('Remove "${preset.name}" from your quick picks?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    await context.read<TrackerState>().deletePreset(preset.id);
   }
 }
 

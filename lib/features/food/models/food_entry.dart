@@ -152,6 +152,17 @@ class FoodEntry implements TrackerEntry {
     return found ? total : null;
   }
 
+  /// Entry JSON with the protein total shown in the UI.
+  ///
+  /// Stored files keep [protein] optional, but a clipboard export should match
+  /// the screen, so the derived [totalProtein] is included when it is known.
+  Map<String, dynamic> toExportJson() {
+    final json = toJson();
+    final total = totalProtein;
+    if (total != null) json['totalProtein'] = total;
+    return json;
+  }
+
   /// Total fats in the entry, when known.
   final num? fats;
 
