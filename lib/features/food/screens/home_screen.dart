@@ -6,6 +6,8 @@ import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/widgets/add_food_sheet.dart';
 import 'package:junk_food_tracker/features/settings/screens/settings_screen.dart';
 import 'package:junk_food_tracker/features/trends/screens/trends_screen.dart';
+import 'package:junk_food_tracker/features/workout/widgets/extra_workout_sheet.dart';
+import 'package:junk_food_tracker/features/workout/widgets/extra_workouts_sheet.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
 import 'package:junk_food_tracker/shared/widgets/category_chip.dart';
 import 'package:provider/provider.dart';
@@ -113,11 +115,14 @@ class _SummaryCard extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
 
-    final total = state.todayTotalCalories;
+    final intake = state.todayTotalCalories;
+    final burned = state.todayBurnedCalories;
+    final total = intake - burned;
     final goal = state.config.dailyCalorieGoal;
     final junk = state.todayJunkCalories;
     final protein = state.todayTotalProtein;
     final weekAverage = state.currentWeekAverage;
+    final workouts = state.todayWorkouts;
     final ratio = goal > 0 ? (total / goal).clamp(0.0, 1.0) : 0.0;
     final remaining = goal - total;
     final overGoal = remaining < 0;
@@ -141,7 +146,7 @@ class _SummaryCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  "Today's calories",
+                  burned > 0 ? 'Net today' : "Today's calories",
                   style: theme.textTheme.titleSmall?.copyWith(
                     color: colors.onPrimaryContainer.withValues(alpha: 0.8),
                     fontWeight: FontWeight.w600,
@@ -208,6 +213,16 @@ class _SummaryCard extends StatelessWidget {
               ],
             ),
           ),
+          if (burned > 0) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Eaten ${formatNumber(intake)} · '
+              'Burned ${formatNumber(burned)} kcal',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.onPrimaryContainer.withValues(alpha: 0.75),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
@@ -264,6 +279,38 @@ class _SummaryCard extends StatelessWidget {
                     color: colors.onPrimaryContainer.withValues(alpha: 0.65),
                   ),
                 ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Flexible(
+                child: TextButton.icon(
+                  key: const Key('extra-workout-button'),
+                  onPressed: burned > 0
+                      ? () => showExtraWorkoutsSheet(context)
+                      : () => showExtraWorkoutSheet(context),
+                  icon: Icon(
+                    burned > 0
+                        ? Icons.local_fire_department_rounded
+                        : Icons.add_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    burned > 0
+                        ? 'Burned ${formatNumber(burned)} kcal · '
+                              '${workouts.length == 1 ? '1 workout' : '${workouts.length} workouts'}'
+                        : 'Log extra workout',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.onPrimaryContainer,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ),
             ],
           ),
         ],

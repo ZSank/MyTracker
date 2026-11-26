@@ -1,14 +1,12 @@
-import 'dart:async';
-
 import 'package:material_ui/material_ui.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
 import 'package:provider/provider.dart';
 
 /// Free-form notes for features to add later.
 ///
-/// The text is stored as `feature_requests.txt` in the user's vault folder,
-/// next to `config.json`, so it stays with the rest of their local data.
-/// Edits are autosaved shortly after typing stops.
+/// The text is stored in one file, `feature_requests.txt`, in the user's vault
+/// folder next to `config.json`. Opening this page reads that file; going back
+/// overwrites the same file with any edits.
 class FeatureRequestsScreen extends StatefulWidget {
   const FeatureRequestsScreen({super.key});
 
@@ -17,11 +15,7 @@ class FeatureRequestsScreen extends StatefulWidget {
 }
 
 class _FeatureRequestsScreenState extends State<FeatureRequestsScreen> {
-  static const Duration _autosaveDelay = Duration(milliseconds: 700);
-
   final TextEditingController _controller = TextEditingController();
-  Timer? _autosaveTimer;
-  Completer<void>? _saveDone;
   bool _loading = true;
   bool _saving = false;
   bool _dirty = false;
@@ -37,7 +31,6 @@ class _FeatureRequestsScreenState extends State<FeatureRequestsScreen> {
 
   @override
   void dispose() {
-    _autosaveTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -66,73 +59,45 @@ class _FeatureRequestsScreenState extends State<FeatureRequestsScreen> {
     }
   }
 
-  void _onChanged(String _) {
-    if (!_dirty) setState(() => _dirty = true);
-    _autosaveTimer?.cancel();
-    _autosaveTimer = Timer(_autosaveDelay, () {
-      if (mounted) _save(showFeedback: false);
-    });
-  }
+  Future<bool> _save() async {
+    if (_saving) return false;
 
-  Future<bool> _save({bool showFeedback = true}) async {
     final state = context.read<TrackerState>();
-    while (_saving) {
-      final pending = _saveDone;
-      if (pending == null) break;
-      await pending.future;
-    }
-    if (!_dirty) return true;
-    _autosaveTimer?.cancel();
-    final text = _controller.text;
-    final completer = Completer<void>();
-    _saveDone = completer;
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _saving = true);
 
     try {
-      await state.saveFeatureRequests(text);
+      await state.saveFeatureRequests(_controller.text);
       if (!mounted) return true;
-      final stillCurrent = _controller.text == text;
-      setState(() => _dirty = !stillCurrent);
-      if (!stillCurrent) {
-        _autosaveTimer = Timer(_autosaveDelay, () {
-          if (mounted) _save(showFeedback: false);
-        });
-      }
-      if (showFeedback) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Feature requests saved to your vault.'),
-            duration: Duration(seconds: 1),
-          ),
-        );
-      }
+      setState(() {
+        _dirty = false;
+        _saving = false;
+      });
       return true;
     } catch (error) {
       if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
+      setState(() => _saving = false);
+      messenger.showSnackBar(
         SnackBar(content: Text('Could not save feature requests.\n$error')),
       );
       return false;
-    } finally {
-      if (identical(_saveDone, completer)) _saveDone = null;
-      completer.complete();
-      if (mounted) setState(() => _saving = false);
     }
   }
 
   Future<void> _handleBack() async {
-    _autosaveTimer?.cancel();
-    if (_dirty || _saving) {
-      final saved = await _save(showFeedback: false);
-      if (!saved || _dirty || _saving) return;
+    if (_saving) return;
+
+    if (_dirty) {
+      final saved = await _save();
+      if (!saved) return;
     }
+
     if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TrackerState>();
-    final theme = Theme.of(context);
 
     return PopScope(
       canPop: !_dirty && !_saving,
@@ -141,28 +106,7 @@ class _FeatureRequestsScreenState extends State<FeatureRequestsScreen> {
         _handleBack();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Feature Requests'),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(
-                        _dirty ? 'Saving...' : 'Saved',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-              ),
-            ),
-          ],
-        ),
+        appBar: AppBar(title: const Text('Feature Requests')),
         body: _buildBody(state),
       ),
     );
@@ -219,8 +163,8 @@ class _FeatureRequestsScreenState extends State<FeatureRequestsScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Write down features you want to add. Changes are autosaved to '
-            'feature_requests.txt in your vault folder, not inside the app.',
+            'Write down features you want to add. Your edits are saved to the '
+            'same feature_requests.txt file in your vault when you go back.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: colors.onSurfaceVariant,
             ),
@@ -246,25 +190,15 @@ class _FeatureRequestsScreenState extends State<FeatureRequestsScreen> {
               textAlignVertical: TextAlignVertical.top,
               keyboardType: TextInputType.multiline,
               textCapitalization: TextCapitalization.sentences,
-              onChanged: _onChanged,
+              onChanged: (_) {
+                if (!_dirty) setState(() => _dirty = true);
+              },
               decoration: const InputDecoration(
                 hintText:
                     'e.g. Barcode scanner, water tracking, weekly report...',
                 border: OutlineInputBorder(),
                 alignLabelWithHint: true,
               ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _saving
-                ? 'Saving to vault...'
-                : _dirty
-                ? 'Unsaved changes...'
-                : 'All changes saved.',
-            textAlign: TextAlign.end,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colors.onSurfaceVariant,
             ),
           ),
         ],

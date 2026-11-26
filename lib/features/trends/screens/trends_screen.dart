@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:junk_food_tracker/core/state/tracker_state.dart';
 import 'package:junk_food_tracker/core/utils/date_key.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
+import 'package:junk_food_tracker/features/food/widgets/add_food_sheet.dart';
 import 'package:junk_food_tracker/features/trends/models/trend_report.dart';
 import 'package:junk_food_tracker/features/trends/widgets/trend_bar_chart.dart';
 import 'package:junk_food_tracker/shared/utils/formatters.dart';
@@ -80,6 +81,12 @@ class _TrendsScreenState extends State<TrendsScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _editEntry(FoodEntry entry) async {
+    await showAddFoodSheet(context, entry: entry);
+    if (!mounted) return;
+    await _load();
   }
 
   void _selectRange(TrendRange range) {
@@ -236,12 +243,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
               entries: _entries,
               range: _range,
               isJunkCategory: context.read<TrackerState>().isJunkCategory,
+              onEdit: _editEntry,
             ),
           ],
           const SizedBox(height: 20),
           Text(
             'Charts are built from the JSON logs in your vault. '
-            'Tap a bar to see its exact totals.',
+            'Tap a bar to see its exact totals. Tap a meal to edit it.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -324,11 +332,13 @@ class _MealsCard extends StatelessWidget {
     required this.entries,
     required this.range,
     required this.isJunkCategory,
+    required this.onEdit,
   });
 
   final List<FoodEntry> entries;
   final TrendRange range;
   final bool Function(String category) isJunkCategory;
+  final ValueChanged<FoodEntry> onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -344,6 +354,7 @@ class _MealsCard extends StatelessWidget {
 
     return Card(
       margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: Column(
@@ -391,6 +402,7 @@ class _MealsCard extends StatelessWidget {
                   _MealTile(
                     entry: entry,
                     isJunk: isJunkCategory(entry.category),
+                    onTap: () => onEdit(entry),
                   ),
               ],
           ],
@@ -449,12 +461,17 @@ class _MealDayHeader extends StatelessWidget {
 }
 
 class _MealTile extends StatelessWidget {
-  const _MealTile({required this.entry, required this.isJunk});
+  const _MealTile({
+    required this.entry,
+    required this.isJunk,
+    required this.onTap,
+  });
 
   static final DateFormat _timeFormat = DateFormat.jm();
 
   final FoodEntry entry;
   final bool isJunk;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -463,99 +480,103 @@ class _MealTile extends StatelessWidget {
     final hasQuantity =
         entry.quantity != 1 || (entry.unit?.trim().isNotEmpty ?? false);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: isJunk ? colors.errorContainer : colors.primaryContainer,
-              shape: BoxShape.circle,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: isJunk ? colors.errorContainer : colors.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isJunk ? Icons.fastfood_rounded : Icons.restaurant_rounded,
+                size: 18,
+                color: isJunk
+                    ? colors.onErrorContainer
+                    : colors.onPrimaryContainer,
+              ),
             ),
-            child: Icon(
-              isJunk ? Icons.fastfood_rounded : Icons.restaurant_rounded,
-              size: 18,
-              color: isJunk
-                  ? colors.onErrorContainer
-                  : colors.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        entry.foodName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          entry.foodName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      formatCaloriesWithProtein(
-                        entry.calories,
-                        entry.totalProtein,
-                      ),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    CategoryChip(category: entry.category, isJunk: isJunk),
-                    Text(
-                      _timeFormat.format(entry.timestamp.toLocal()),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
-                    ),
-                    if (hasQuantity)
+                      const SizedBox(width: 8),
                       Text(
-                        formatEntryQuantity(entry),
+                        formatCaloriesWithProtein(
+                          entry.calories,
+                          entry.totalProtein,
+                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      CategoryChip(category: entry.category, isJunk: isJunk),
+                      Text(
+                        _timeFormat.format(entry.timestamp.toLocal()),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colors.onSurfaceVariant,
                         ),
                       ),
-                  ],
-                ),
-                if (entry.items.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    entry.items
-                        .map(
-                          (item) =>
-                              '${item.name} '
-                              '${formatQuantityWithUnit(item.quantity, item.unit)}',
-                        )
-                        .join(' · '),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
+                      if (hasQuantity)
+                        Text(
+                          formatEntryQuantity(entry),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
                   ),
+                  if (entry.items.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.items
+                          .map(
+                            (item) =>
+                                '${item.name} '
+                                '${formatQuantityWithUnit(item.quantity, item.unit)}',
+                          )
+                          .join(' · '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

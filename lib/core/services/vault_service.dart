@@ -9,6 +9,8 @@ import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
 import 'package:junk_food_tracker/features/food/models/monthly_food_log.dart';
+import 'package:junk_food_tracker/features/workout/models/monthly_workout_log.dart';
+import 'package:junk_food_tracker/features/workout/models/workout_entry.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -21,7 +23,9 @@ import 'package:path_provider/path_provider.dart';
 /// ├── food_presets.json
 /// ├── feature_requests.txt
 /// └── logs/
-///     └── food/
+///     ├── food/
+///     │   └── YYYY-MM.json
+///     └── workouts/
 ///         └── YYYY-MM.json
 /// ```
 ///
@@ -108,7 +112,8 @@ class VaultService {
     return p.join(base.path, vaultFolderName);
   }
 
-  /// Creates the root, `logs/food/`, and any missing default files.
+  /// Creates the root, `logs/food/`, `logs/workouts/`, and any missing
+  /// default files.
   ///
   /// Existing files are never overwritten, so opening a folder that was synced
   /// from another device keeps all of its data. Vaults written by older
@@ -120,6 +125,7 @@ class VaultService {
 
     await store.ensureDirectory(const []);
     await store.ensureDirectory(const ['logs', 'food']);
+    await store.ensureDirectory(const ['logs', 'workouts']);
 
     if (!await store.fileExists(const [configFileName])) {
       await writeConfig(AppConfig.defaults());
@@ -204,6 +210,9 @@ class VaultService {
   }
 
   /// Writes the feature request notes as plain text in the vault root.
+  ///
+  /// Always overwrites the same [featureRequestsFileName] file; it never
+  /// creates additional note files.
   Future<void> writeFeatureRequests(String contents) {
     return _enqueueWrite(
       () => _vaultStore.writeTextAtomic(const [
@@ -227,6 +236,27 @@ class VaultService {
         '${monthKey(log.date)}.json',
       ], updated.toJson());
     });
+  }
+
+  /// Loads every extra workout stored in [date]'s month.
+  Future<List<WorkoutEntry>> loadWorkoutsForMonth(DateTime date) async {
+    final monthlyLog = await _readMonthlyWorkoutLog(date);
+    return monthlyLog.entries;
+  }
+
+  /// Replaces the whole workout file for [month].
+  Future<void> writeWorkoutsForMonth(
+    DateTime month,
+    List<WorkoutEntry> entries,
+  ) {
+    final log = MonthlyWorkoutLog(month: month, entries: entries);
+    return _enqueueWrite(
+      () => _writeJson([
+        'logs',
+        'workouts',
+        '${monthKey(month)}.json',
+      ], log.toJson()),
+    );
   }
 
   /// Every day that currently has entries, sorted oldest to newest.
@@ -298,6 +328,28 @@ class VaultService {
     } on FormatException {
       await _quarantine(segments);
       return MonthlyFoodLog.empty(date);
+    }
+  }
+
+  Future<MonthlyWorkoutLog> _readMonthlyWorkoutLog(DateTime date) async {
+    final segments = ['logs', 'workouts', '${monthKey(date)}.json'];
+    final raw = await _vaultStore.readText(segments);
+    if (raw == null) return MonthlyWorkoutLog.empty(date);
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        throw const FormatException(
+          'A monthly workout log must contain a JSON object.',
+        );
+      }
+      return MonthlyWorkoutLog.fromJson(
+        Map<String, dynamic>.from(decoded),
+        month: date,
+      );
+    } on FormatException {
+      await _quarantine(segments);
+      return MonthlyWorkoutLog.empty(date);
     }
   }
 

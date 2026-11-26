@@ -6,6 +6,7 @@ import 'package:junk_food_tracker/features/food/models/daily_food_log.dart';
 import 'package:junk_food_tracker/features/food/models/food_entry.dart';
 import 'package:junk_food_tracker/features/food/models/food_preset.dart';
 import 'package:junk_food_tracker/features/food/models/weekly_average.dart';
+import 'package:junk_food_tracker/features/workout/models/workout_entry.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum VaultStatus { initializing, needsVaultSetup, ready, error }
@@ -28,6 +29,8 @@ class TrackerState extends ChangeNotifier {
   final VaultService _vault;
   final Map<String, DailyFoodLog> _logs = {};
   final Map<String, Future<DailyFoodLog>> _logLoads = {};
+  final Map<String, List<WorkoutEntry>> _workoutsByMonth = {};
+  final Set<String> _loadedWorkoutMonths = {};
 
   VaultStatus _status = VaultStatus.initializing;
   AppConfig _config = AppConfig.defaults();
@@ -114,6 +117,22 @@ class TrackerState extends ChangeNotifier {
   List<FoodEntry> get todayEntries => todayLog?.entries ?? const <FoodEntry>[];
 
   int get todayTotalCalories => todayLog?.totalCalories ?? 0;
+
+  /// Extra workouts logged for today, newest first.
+  List<WorkoutEntry> get todayWorkouts {
+    final now = DateTime.now();
+    final entries = _workoutsByMonth[monthKey(now)] ?? const <WorkoutEntry>[];
+    return List.unmodifiable(
+      entries.where((entry) => isSameDate(entry.timestamp, now)),
+    );
+  }
+
+  /// Calories burned by today's extra workouts.
+  int get todayBurnedCalories =>
+      todayWorkouts.fold(0, (total, workout) => total + workout.caloriesBurned);
+
+  /// Food calories minus today's extra workout calories.
+  int get todayNetCalories => todayTotalCalories - todayBurnedCalories;
 
   int get todayJunkCalories =>
       todayLog?.junkCalories(_config.junkFoodCategories.toSet()) ?? 0;
@@ -331,6 +350,9 @@ class TrackerState extends ChangeNotifier {
         _logs[dateKey(log.date)] = log;
       }
       _logLoads.clear();
+      _workoutsByMonth.clear();
+      _loadedWorkoutMonths.clear();
+      await _loadWorkoutMonth(DateTime.now());
 
       final openedPath = _vault.rootPath!;
       _vaultPath = openedPath;
@@ -504,6 +526,57 @@ class TrackerState extends ChangeNotifier {
     _logs[key] = updated;
     _notify();
     await _persist(() => _vault.writeDailyLog(updated));
+  }
+
+  /// Adds a new extra workout or replaces an existing one with the same id.
+  Future<void> saveWorkoutEntry(WorkoutEntry entry) async {
+    final month = monthOnly(entry.timestamp);
+    final key = monthKey(month);
+    await _loadWorkoutMonth(month);
+
+    final updated = [
+      ...?_workoutsByMonth[key]?.where((existing) => existing.id != entry.id),
+      entry,
+    ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    _workoutsByMonth[key] = List.unmodifiable(updated);
+    _notify();
+    await _persist(() => _vault.writeWorkoutsForMonth(month, updated));
+  }
+
+  Future<void> deleteWorkoutEntry(WorkoutEntry entry) async {
+    final month = monthOnly(entry.timestamp);
+    final key = monthKey(month);
+    await _loadWorkoutMonth(month);
+
+    final current = _workoutsByMonth[key] ?? const <WorkoutEntry>[];
+    final remaining = current
+        .where((existing) => existing.id != entry.id)
+        .toList();
+    if (remaining.length == current.length) return;
+
+    _workoutsByMonth[key] = List.unmodifiable(remaining);
+    _notify();
+    await _persist(() => _vault.writeWorkoutsForMonth(month, remaining));
+  }
+
+  Future<List<WorkoutEntry>> _loadWorkoutMonth(DateTime date) async {
+    final key = monthKey(date);
+    if (_loadedWorkoutMonths.contains(key)) {
+      return _workoutsByMonth[key] ?? const <WorkoutEntry>[];
+    }
+
+    try {
+      final entries = await _vault.loadWorkoutsForMonth(date);
+      _workoutsByMonth[key] = List.unmodifiable(entries);
+    } on StateError {
+      // Lightweight in-memory vault services may not expose workout storage.
+      // Treat those as having no workouts instead of failing the whole vault.
+      _workoutsByMonth[key] = const <WorkoutEntry>[];
+    }
+
+    _loadedWorkoutMonths.add(key);
+    return _workoutsByMonth[key]!;
   }
 
   /// Replaces an entry, moving it to a new day's log when the time changed.
